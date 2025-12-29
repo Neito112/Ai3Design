@@ -108,19 +108,27 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        // 3. VẼ LÊN TỜ GIẤY (Xử lý nền thông minh)
+        // 3. VẼ VÀO CANVAS
         if (targetRatioId) {
-            if (taskType === 'sketch' || taskType === 'face') {
-                // Face ID & Sketch: Nền TRẮNG TUYỆT ĐỐI (Clean White Canvas)
-                // Đây là nền tảng để AI hiểu là "không gian trống cần vẽ đè lên"
+            if (taskType === 'face') {
+                // LOGIC MỚI CHO FACE ID: CROP & COVER (LẤP ĐẦY KHUNG)
+                // Không dùng bất kỳ nền màu nào. Phóng to ảnh gốc để lấp đầy toàn bộ khung hình đích.
+                // Điều này giúp loại bỏ hoàn toàn viền/khoảng trống, đảm bảo đúng tỉ lệ.
+                
+                const scale = Math.max(finalWidth / img.width, finalHeight / img.height);
+                const x = (finalWidth / 2) - (img.width / 2) * scale;
+                const y = (finalHeight / 2) - (img.height / 2) * scale;
+                
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+            } else if (taskType === 'sketch') {
+                // Sketch: Nền trắng
                 ctx.fillStyle = '#FFFFFF'; 
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
-                
-                // Vẽ ảnh gốc vào chính giữa (Giữ nguyên tỉ lệ ảnh gốc)
-                // Đối với Face ID, đây chỉ là "Ảnh thẻ tham khảo" (Reference Card)
-                const x = (finalWidth - sourceWidth) / 2;
-                const y = (finalHeight - sourceHeight) / 2;
-                ctx.drawImage(img, 0, 0, img.width, img.height, x, y, sourceWidth, sourceHeight);
+                // Vẽ ảnh gốc vào chính giữa (Contain)
+                const scale = Math.min(finalWidth / img.width, finalHeight / img.height);
+                const x = (finalWidth / 2) - (img.width / 2) * scale;
+                const y = (finalHeight / 2) - (img.height / 2) * scale;
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
             } else {
                 // Edit: Logic cũ (Nền mờ)
                 ctx.filter = 'blur(40px) brightness(0.8)';
@@ -132,9 +140,10 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                     img.height * fillScale
                 );
                 ctx.filter = 'none';
-                const x = (finalWidth - sourceWidth) / 2;
-                const y = (finalHeight - sourceHeight) / 2;
-                ctx.drawImage(img, 0, 0, img.width, img.height, x, y, sourceWidth, sourceHeight);
+                const scale = Math.min(finalWidth / img.width, finalHeight / img.height);
+                const x = (finalWidth / 2) - (img.width / 2) * scale;
+                const y = (finalHeight / 2) - (img.height / 2) * scale;
+                ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
             }
         } else {
             ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
@@ -238,29 +247,29 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
           2. **INTERPRETATION**: Use the sketch as a layout guide only. Replace lines with real textures.
           `;
       } else if (taskType === 'face') {
-          // PROMPT FACE ID: CHÍNH XÁC 3 BƯỚC YÊU CẦU
+          // PROMPT FACE ID: QUY TRÌNH 3 BƯỚC CỦA NGƯỜI DÙNG
           ratioInstruction = `
-          **MANDATORY 3-STEP PIPELINE (Execute strictly in this order)**:
+          **STRICT WORKFLOW (DO NOT DEVIATE)**:
 
-          **STEP 1: GENERATE NEW IMAGE FROM TEXT (The "Creation" Phase)**
-          - **Input**: IGNORE the provided image completely for this step. Treat it as non-existent.
-          - **Action**: Create a **BRAND NEW, FULL-FRAME** photograph based ONLY on the text prompt: "${prompt}".
-          - **Canvas**: The image must cover the entire ${RATIO_CONFIG[ratioId].label} aspect ratio.
-          - **Subject**: Generate a **FICTIONAL DUMMY MODEL** in the scene to act as a placeholder. This model must wear the outfit and be in the pose described in the prompt.
-          - **Style**: **Realistic Photography, Real Life** (unless the prompt specifically asks for another style).
+          **STEP 1: ZERO-SHOT GENERATION (IGNORE INPUT)**
+          - **Action**: Treat the input image as NON-EXISTENT for scene creation.
+          - **Task**: Generate a **COMPLETELY NEW IMAGE** based *only* on the text prompt: "${prompt}".
+          - **Canvas**: The image must fill the ${RATIO_CONFIG[ratioId].label} frame.
+          - **Content**: Create a scene with a **DUMMY MODEL** (a generic person) in the outfit/pose described in the prompt.
+          - **Style**: **Realistic Photography, Real Life** (unless prompt specifies otherwise).
 
-          **STEP 2: EXTRACT IDENTITY FROM INPUT (The "Analysis" Phase)**
-          - **Input**: NOW, look at the provided reference image (center).
-          - **Target**: Extract ONLY the biological **FACE** (Eyes, Nose, Mouth) and **BODY BUILD** (Height, Weight).
-          - **FILTER (CRITICAL)**: 
-             - **DELETE** Clothing: The input clothes must be ignored.
-             - **DELETE** Accessories: Remove glasses, bags, hats from the input data.
-             - **DELETE** Hair: Ignore the original hair styling.
+          **STEP 2: FEATURE EXTRACTION (FROM INPUT)**
+          - **Action**: Now, analyze the input image.
+          - **EXTRACT**: Facial Features (Eyes, Nose, Mouth) and Body Physique (Fat/Thin/Muscular).
+          - **DISCARD**: 
+             - **Clothes**: IGNORE input clothes. The subject MUST wear the outfit generated for the dummy model in Step 1.
+             - **Accessories**: REMOVE glasses, bags, hats from the input.
+             - **Hair**: REMOVE original hairstyle.
 
-          **STEP 3: MERGE & REFINE (The "Swap" Phase)**
-          - **Action**: Swap the extracted Identity (from Step 2) onto the Dummy Model (generated in Step 1).
-          - **Refine**: Adapt the skin tone and lighting of the face to match the NEW scene perfectly.
-          - **Result**: A final photo where the user's face is on a new body, in a new place, with new clothes.
+          **STEP 3: MERGE (FACE SWAP)**
+          - **Action**: Swap the extracted Identity (Step 2) onto the Dummy Model (Step 1).
+          - **Refine**: Match lighting and skin texture.
+          - **Result**: A final photo with the NEW SCENE and OLD FACE.
           `;
       } else {
           ratioInstruction = `**ACTION**: Outpaint/Extend the scene into the blurred areas.`;
@@ -291,29 +300,26 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
       TASK: Convert sketch to High-End Photograph.
     `;
   } else if (taskType === 'face') {
-    // SYSTEM CONTEXT CHO FACE ID - QUY TRÌNH CHUẨN
+    // SYSTEM CONTEXT CHO FACE ID
     systemContext = `
       ${commonInstructions}
-      ROLE: Advanced Identity & Scene Synthesizer.
+      ROLE: Advanced Visual Identity Synthesizer.
       
-      **OBJECTIVE**: 
-      1. Create a NEW SCENE from scratch (Step 1).
-      2. Analyze the reference (Step 2).
-      3. Combine them (Step 3).
+      **MISSION**:
+      1. Create a NEW SCENE from text (with a dummy model).
+      2. Extract Face Identity from input.
+      3. Apply Face to New Scene.
 
       **MANDATORY STYLE**:
       - **Real Life Photography**, Photorealistic.
       - **NO CARTOONS**, **NO 3D RENDERS**.
-
-      **INPUT HANDLING**:
-      - The input image is a **REFERENCE SHEET** only.
-      - The white background is void space. **FILL IT COMPLETELY**.
+      - **NO BORDERS**: The image must be full-bleed.
     `;
   }
 
   // FORCE STYLE IN USER PROMPT
   const styleSuffix = taskType === 'face' 
-    ? ". \n\n**REQUIREMENT**: Realistic Photo, 8k, Detailed skin texture. \n**NEGATIVE**: Cartoon, 3D, Anime, Painting, Airbrushed, Plastic skin, White borders, Black borders, Glasses, Bag, Backpack, Accessories, Old clothes, Input background." 
+    ? ". \n\n**REQUIREMENT**: Realistic Photo, 8k, Detailed skin texture. \n**NEGATIVE**: Cartoon, 3D, Anime, Painting, Airbrushed, Plastic skin, White borders, Black borders, Glasses, Bag, Backpack, Accessories, Old clothes." 
     : "";
   const fullPrompt = `${systemContext}\n\nUser's Request: ${prompt}${styleSuffix}`;
 
@@ -367,9 +373,8 @@ const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownl
         {isGenerating ? (
           <div className="flex flex-col items-center justify-center text-blue-400 animate-pulse">
             <Sparkles size={48} className="mb-4 animate-spin-slow" />
-            <span className="text-lg font-medium tracking-wider">AI đang xử lý...</span>
-            {/* Sử dụng entity HTML cho dấu mũi tên để tránh lỗi JSX */}
-            <span className="text-xs text-white/40 mt-2">Đợi chờ là hạnh phúc...</span>
+            <span className="text-lg font-medium tracking-wider">AI múa...</span>
+            <span className="text-xs text-white/40 mt-2">Đợi chờ là mất thì giờ...</span>
           </div>
         ) : error ? (
            <div className="flex flex-col items-center justify-center text-red-400 text-center p-4">
