@@ -13,8 +13,15 @@ import {
   Settings2,
   Trash2,
   Plus,
-  AlertCircle
+  AlertCircle,
+  ScanLine,
+  Zap
 } from 'lucide-react';
+
+// --- GLOBAL API KEY CONFIGURATION ---
+// QUAN TRỌNG: Nếu chạy trên máy cá nhân, hãy điền API Key của bạn vào dấu ngoặc kép bên dưới.
+// Ví dụ: const apiKey = "AIzaSy...";
+const apiKey = ""; 
 
 // --- CONFIGURATION ---
 const RATIO_CONFIG = {
@@ -45,8 +52,9 @@ const RATIO_CONFIG = {
 };
 
 // --- UTILS ---
-// Hàm nén ảnh để giảm tải cho API (Client-side compression)
-const compressImage = (file) => {
+
+// CẬP NHẬT: Thêm tham số taskType để xử lý nền đúng cách
+const compressImage = (file, targetRatioId = null, taskType = null) => {
   return new Promise((resolve) => {
     const reader = new FileReader();
     reader.readAsDataURL(file);
@@ -54,55 +62,124 @@ const compressImage = (file) => {
       const img = new Image();
       img.src = event.target.result;
       img.onload = () => {
-        // Giới hạn kích thước tối đa 1024px để cân bằng giữa chất lượng và tốc độ
-        const MAX_SIZE = 1024;
-        let width = img.width;
-        let height = img.height;
+        // 1. Xác định kích thước canvas đích
+        let sourceWidth = img.width;
+        let sourceHeight = img.height;
+        let finalWidth = sourceWidth;
+        let finalHeight = sourceHeight;
 
-        if (width > height) {
-          if (width > MAX_SIZE) {
-            height *= MAX_SIZE / width;
-            width = MAX_SIZE;
-          }
-        } else {
-          if (height > MAX_SIZE) {
-            width *= MAX_SIZE / height;
-            height = MAX_SIZE;
-          }
+        if (targetRatioId && RATIO_CONFIG[targetRatioId]) {
+           const [rW, rH] = RATIO_CONFIG[targetRatioId].apiValue.split(':').map(Number);
+           const targetRatio = rW / rH;
+           const currentRatio = sourceWidth / sourceHeight;
+
+           if (currentRatio > targetRatio) {
+               finalWidth = sourceWidth;
+               finalHeight = sourceWidth / targetRatio;
+           } else {
+               finalHeight = sourceHeight;
+               finalWidth = sourceHeight * targetRatio;
+           }
+        }
+
+        // 2. Resize giới hạn 4K
+        const MAX_SIZE = 4096; 
+        if (finalWidth > MAX_SIZE || finalHeight > MAX_SIZE) {
+            if (finalWidth > finalHeight) {
+                const scale = MAX_SIZE / finalWidth;
+                finalWidth = MAX_SIZE;
+                finalHeight *= scale;
+                sourceWidth *= scale;
+                sourceHeight *= scale;
+            } else {
+                const scale = MAX_SIZE / finalHeight;
+                finalHeight = MAX_SIZE;
+                finalWidth *= scale;
+                sourceWidth *= scale;
+                sourceHeight *= scale;
+            }
         }
 
         const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
+        canvas.width = finalWidth;
+        canvas.height = finalHeight;
         const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
         
-        // Xuất ra JPEG quality 0.8 (giảm dung lượng đáng kể mà vẫn đẹp)
-        const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
-        resolve(dataUrl.split(',')[1]);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+
+        // 3. VẼ LÊN TỜ GIẤY (Xử lý nền thông minh)
+        if (targetRatioId) {
+            // CẬP NHẬT QUAN TRỌNG: Áp dụng nền trắng cho cả 'face' để tạo "Tờ giấy trắng"
+            if (taskType === 'sketch' || taskType === 'face') {
+                ctx.fillStyle = '#FFFFFF'; 
+                ctx.fillRect(0, 0, finalWidth, finalHeight);
+            } else {
+                // LOGIC CHO EDIT: Dùng nền mờ
+                ctx.filter = 'blur(40px) brightness(0.8)';
+                const fillScale = Math.max(finalWidth / img.width, finalHeight / img.height);
+                ctx.drawImage(img, 
+                    (finalWidth - img.width * fillScale) / 2, 
+                    (finalHeight - img.height * fillScale) / 2, 
+                    img.width * fillScale, 
+                    img.height * fillScale
+                );
+                ctx.filter = 'none';
+            }
+
+            // Vẽ ảnh gốc vào chính giữa
+            const x = (finalWidth - sourceWidth) / 2;
+            const y = (finalHeight - sourceHeight) / 2;
+            ctx.drawImage(img, 0, 0, img.width, img.height, x, y, sourceWidth, sourceHeight);
+        } else {
+            ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
+        }
+        
+        const isPng = file.type === 'image/png';
+        const outputType = isPng ? 'image/png' : 'image/jpeg';
+        const quality = 1.0; 
+
+        const dataUrl = canvas.toDataURL(outputType, quality);
+        resolve({
+            data: dataUrl.split(',')[1],
+            width: finalWidth,
+            height: finalHeight,
+            mimeType: outputType
+        });
       };
     };
   });
 };
 
-const fileToBase64 = (file) => {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.readAsDataURL(file);
-    reader.onload = () => {
-      const base64String = reader.result.split(',')[1]; 
-      resolve(base64String);
-    };
-    reader.onerror = (error) => reject(error);
-  });
+const applySharpening = (ctx, width, height, amount = 1) => {
+  const imageData = ctx.getImageData(0, 0, width, height);
+  const data = imageData.data;
+  const w = width; 
+  const copy = new Uint8ClampedArray(data);
+  
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < w - 1; x++) {
+      const i = (y * w + x) * 4;
+      
+      const top = ((y - 1) * w + x) * 4;
+      const bottom = ((y + 1) * w + x) * 4;
+      const left = (y * w + (x - 1)) * 4;
+      const right = (y * w + (x + 1)) * 4;
+
+      for (let c = 0; c < 3; c++) { 
+        const pixel = copy[i + c];
+        const neighbors = copy[top + c] + copy[bottom + c] + copy[left + c] + copy[right + c];
+        const edge = (4 * pixel) - neighbors;
+        data[i + c] = Math.min(255, Math.max(0, pixel + (edge * amount * 0.5))); 
+      }
+    }
+  }
+  ctx.putImageData(imageData, 0, 0);
 };
 
 // --- GOOGLE API FUNCTIONS ---
 
-// 1. TEXT TO IMAGE (Imagen 4.0)
 const generateGoogleImage = async (prompt, ratioId) => {
-  // API Key đặt trong hàm để đảm bảo được inject đúng lúc runtime
-  const apiKey = ""; 
   const aspectRatio = RATIO_CONFIG[ratioId]?.apiValue || '1:1';
   
   const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
@@ -119,7 +196,8 @@ const generateGoogleImage = async (prompt, ratioId) => {
   });
 
   if (!response.ok) {
-    if (response.status === 401) throw new Error("Lỗi xác thực (401): API Key bị thiếu hoặc không hợp lệ.");
+    if (response.status === 400 && !apiKey) throw new Error("Chưa nhập API Key. Vui lòng điền Key vào file App.jsx.");
+    if (response.status === 401) throw new Error("Lỗi xác thực (401): API Key không hợp lệ.");
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.error?.message || `Lỗi Imagen API: ${response.status}`);
   }
@@ -130,95 +208,99 @@ const generateGoogleImage = async (prompt, ratioId) => {
   return `data:image/png;base64,${base64Image}`;
 };
 
-// 2. IMAGE TO IMAGE (Gemini 2.5 Flash Multimodal)
-const generateMultimodalImage = async (prompt, files, taskType) => {
-  const apiKey = "";
+const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) => {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
 
-  // Sử dụng compressImage để tối ưu payload
-  // Lấy tối đa 3 ảnh để đảm bảo ổn định
   const processedFiles = files.slice(0, 3);
-  const imageParts = await Promise.all(processedFiles.map(async (f) => ({
-    inlineData: {
-      mimeType: 'image/jpeg',
-      data: await compressImage(f.file)
-    }
-  })));
+  
+  const imageParts = await Promise.all(processedFiles.map(async (f) => {
+      const compressed = await compressImage(f.file, ratioId, taskType);
+      return {
+        inlineData: {
+          mimeType: compressed.mimeType,
+          data: compressed.data
+        }
+      };
+  }));
+
+  // LOGIC PROMPT MỚI
+  let ratioInstruction = "";
+  if (ratioId) {
+      if (taskType === 'sketch') {
+          ratioInstruction = `
+          **INPUT CONFIGURATION**: The input is a sketch placed on a WHITE CANVAS of size ${RATIO_CONFIG[ratioId].label}.
+          - The WHITE AREA is empty space.
+          - The SKETCH in the center is the subject.
+          - **ACTION**: Generate a full scene filling the white areas. Do not treat the white borders as part of the object.`;
+      } else if (taskType === 'face') {
+          // PROMPT ĐẶC BIỆT CHO FACE ID: LOGIC "GENERATE -> EDIT"
+          ratioInstruction = `
+          **INPUT ANALYSIS & GENERATION PROTOCOL**:
+          1. **INPUT STRUCTURE**: You are looking at a reference photo (center) placed on a WHITE PLACEHOLDER CANVAS (${RATIO_CONFIG[ratioId].label}).
+          
+          2. **STEP 1: IDENTITY EXTRACTION**:
+             - Analyze the person in the center image.
+             - EXTRACT: Face features (eyes, nose, mouth), Hair style, and Body Physique/Shape (if visible).
+             - IGNORE: The original background of the center image.
+             - IGNORE: The white surrounding borders.
+          
+          3. **STEP 2: FULL SCENE GENERATION**:
+             - Generate a COMPLETELY NEW IMAGE that fills the ENTIRE CANVAS (${RATIO_CONFIG[ratioId].label}).
+             - The scene (background, lighting, context) must follow the User's Prompt.
+             - **CRITICAL**: Do NOT preserve any white pixels. Do NOT preserve the original small background.
+          
+          4. **STEP 3: IDENTITY INJECTION**:
+             - Place the extracted person (Face + Body Shape) into this new scene.
+             - Ensure the person looks natural in the new environment (matched lighting, perspective).
+          `;
+      } else {
+          ratioInstruction = `
+          **INPUT CONFIGURATION**: The input is padded to ${RATIO_CONFIG[ratioId].label} with blurred context.
+          - **ACTION**: Outpaint/Extend the scene into the blurred areas.`;
+      }
+  } else {
+      ratioInstruction = "**ASPECT RATIO**: Maintain input aspect ratio.";
+  }
+
+  const commonInstructions = `
+    GENERAL QUALITY RULES:
+    1. **SHARPNESS**: High micro-contrast and edge definition.
+    2. **TEXTURE**: Realistic surface details (4K/8K style).
+    3. **NO ARTIFACTS**: Clean, noise-free output.
+    ${ratioInstruction}
+  `;
 
   let systemContext = "";
-  const multiImageInstruction = "The input images are provided in order. If the user refers to 'Image #1', 'Image #2', etc., they correspond to the sequence of images provided.";
-
   if (taskType === 'edit') {
-    // Logic chỉnh sửa đa ảnh
     systemContext = `
-      ROLE: You are an expert AI Image Editor and Compositor.
-
-      INSTRUCTIONS:
-      1. **MULTI-IMAGE PROCESSING**:
-         - You can receive up to 3 images.
-         - Understand references to specific images (e.g., "Use the background from Image #1", "Take the person from Image #2").
-         - If simply editing one image, focus on high-fidelity transformation.
-      
-      2. **CAPABILITIES**:
-         - **Modification**: Change weather, lighting, colors, or remove/add objects.
-         - **Blending/Composition**: Merge elements from multiple input images into one coherent scene.
-         - **Style Transfer**: Apply the artistic style of one image to the content of another if requested.
-
-      3. **OUTPUT**:
-         - Generate a SINGLE high-quality, realistic image (unless a specific art style is requested).
-         - Maintain the highest possible visual fidelity and coherence.
-      
-      ${multiImageInstruction}
+      ${commonInstructions}
+      ROLE: Expert Photo Editor.
+      TASK: Perform the user's edit request on the image.
     `;
   } else if (taskType === 'sketch') {
-    // Logic Sketch: Style Breaker (Từ khái niệm -> Thực tế)
     systemContext = `
-      ROLE: You are an intelligent Visual Interpreter that converts primitive sketches into PHOTOREALISTIC REALITY.
-
-      INSTRUCTION:
-      1. **DECODE THE SKETCH (Identify Objects & Attributes)**:
-         - Look at the sketch and extract the *semantic meaning*.
-         - Example: A blue square box -> Interpret as "Real house with blue painted walls".
-         - Example: A red triangle on top -> Interpret as "Real tiled red roof".
-         - Example: Green scribbles around -> Interpret as "Lush flower garden or grass field".
-         - Example: Yellow circle with lines -> Interpret as "Bright shining sun in a clear sky".
-      
-      2. **IGNORE THE STROKES**: 
-         - Do NOT output a drawing. Do NOT trace the wobbly lines.
-         - The output must be a high-resolution PHOTOGRAPH (4k, DSLR quality).
-      
-      3. **EXECUTE**: 
-         - Generate a realistic image that matches the *interpreted concept* of the sketch.
-         - Ensure textures are realistic (brick, wood, cloud, leaf) and lighting matches the scene (e.g., strong shadows for a sunny day).
-      
-      ${multiImageInstruction}
+      ${commonInstructions}
+      ROLE: Concept Artist & Renderer.
+      TASK: Convert the SKETCH lines into a PHOTOREALISTIC image.
+      - **INTERPRETATION**: Infer realistic materials from the strokes.
+      - **OUTPAINTING**: Generate a fitting environment (sky, landscape, room) to fill the white void around the sketch.
     `;
   } else if (taskType === 'face') {
-    // Logic Face ID: Face Lock (Khóa khuôn mặt)
+    // PROMPT DÀNH RIÊNG CHO FACE ID
     systemContext = `
-      ROLE: You are an expert in Digital Identity Preservation and Face Replacement.
-
-      CRITICAL INSTRUCTIONS:
-      1. **FACE LOCK (PRIORITY #1)**: 
-         - The face in the output image MUST be the **EXACT SAME FACE** as in the input image(s).
-         - Strictly preserve: Eye shape/color, Nose shape, Mouth shape, Bone structure, Skin texture, and unique marks (moles, scars).
-
-      2. **REALISM BY DEFAULT (PRIORITY #2)**:
-         - **DEFAULT STYLE**: The output MUST be a high-quality, PHOTOREALISTIC image (DSLR quality, 4k, realistic lighting and textures).
-         - **EXCEPTION**: ONLY if the user prompt explicitly specifies a non-realistic style (e.g., "anime", "cartoon", "oil painting", "sketch"), then follow that style while maintaining facial resemblance as much as possible within that style.
-
-      3. **CONTEXT GENERATION**: 
-         - Generate the body, clothing, hairstyle (unless specified otherwise), background, and lighting according to the User Prompt.
-         - If the prompt conflicts with the face identity (e.g., "make him look like Brad Pitt"), IGNORE that part and KEEP the input face identity.
-
-      4. **SEAMLESS BLENDING**: 
-         - Blend the preserved face naturally with the body and environment so it looks like a genuine photograph, not a photoshop cut-out.
+      ${commonInstructions}
+      ROLE: Advanced Identity Re-contextualizer.
+      TASK: Re-create the user's photo in a new context.
       
-      ${multiImageInstruction}
+      **EXECUTION PRIORITY**:
+      1. **IGNORE WHITE SPACE**: The white background is just a container. FILL IT.
+      2. **IGNORE ORIGINAL BACKGROUND**: The original background behind the face is irrelevant. DISCARD IT.
+      3. **FOCUS ON IDENTITY**: The user wants to see THIS PERSON in a NEW PLACE.
+      4. **FULL FRAME**: The result must be a full rectangular image with NO borders.
     `;
   }
 
-  const fullPrompt = `${systemContext}\n\nUser's Description/Context: ${prompt}`;
+  const fullPrompt = `${systemContext}\n\nUser's Request: ${prompt}`;
 
   const payload = {
     contents: [{
@@ -239,7 +321,8 @@ const generateMultimodalImage = async (prompt, files, taskType) => {
   });
 
   if (!response.ok) {
-    if (response.status === 401) throw new Error("Lỗi xác thực (401): API Key bị thiếu hoặc không hợp lệ.");
+    if (response.status === 400 && !apiKey) throw new Error("Chưa nhập API Key. Vui lòng điền Key vào file App.jsx.");
+    if (response.status === 401) throw new Error("Lỗi xác thực (401): API Key không hợp lệ.");
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.error?.message || `Lỗi Gemini API: ${response.status}`);
   }
@@ -258,22 +341,19 @@ const generateMultimodalImage = async (prompt, files, taskType) => {
 
 // --- COMPONENTS ---
 
-// Component hiển thị kết quả và lịch sử
-const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownload, error, onRemoveHistory }) => {
+const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownload, error, onRemoveHistory, originalSize }) => {
   return (
     <div className="flex flex-col h-full gap-4">
-      {/* Khung hiển thị ảnh chính */}
       <div 
         className={`flex-1 bg-black/20 rounded-2xl border border-white/10 relative overflow-hidden flex items-center justify-center min-h-[300px] transition-all duration-500 ease-out
           ${resultImage && !isGenerating ? 'cursor-zoom-in hover:scale-[1.02] hover:-translate-y-2 hover:shadow-[0_30px_60px_-15px_rgba(0,0,0,0.6)] hover:border-white/30' : ''}`}
         onClick={() => resultImage && onViewFull(resultImage)}
-        title={resultImage ? "Click để xem kích thước lớn" : ""}
       >
         {isGenerating ? (
           <div className="flex flex-col items-center justify-center text-blue-400 animate-pulse">
             <Sparkles size={48} className="mb-4 animate-spin-slow" />
             <span className="text-lg font-medium tracking-wider">AI đang xử lý...</span>
-            <span className="text-xs text-white/40 mt-2">Đang phân tích và tạo tác phẩm...</span>
+            <span className="text-xs text-white/40 mt-2">Đang phân tích, tái tạo chi tiết và tăng độ nét...</span>
           </div>
         ) : error ? (
            <div className="flex flex-col items-center justify-center text-red-400 text-center p-4">
@@ -295,7 +375,6 @@ const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownl
         )}
       </div>
 
-      {/* Khung Lịch sử */}
       <div className="h-32 bg-black/10 rounded-xl border border-white/5 p-3 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between mb-2 shrink-0">
           <div className="flex items-center gap-2 text-white/60 text-xs uppercase font-bold">
@@ -325,15 +404,13 @@ const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownl
               >
                 <img src={img} alt="hist" className="w-full h-full object-cover" />
                 <div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" />
-                
-                {/* Nút xóa ảnh lịch sử */}
                 <button
                     onClick={(e) => {
                         e.stopPropagation();
                         onRemoveHistory(idx);
                     }}
                     className="absolute top-1 right-1 p-1 bg-red-500/90 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md backdrop-blur-sm"
-                    title="Xóa ảnh này"
+                    title="Xóa ảnh này khỏi lịch sử"
                 >
                     <X size={10} strokeWidth={3} />
                 </button>
@@ -346,7 +423,7 @@ const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownl
   );
 };
 
-// --- COMPONENT UPLOAD ẢNH (Bố cục cố định, cuộn bên trong) ---
+// --- UPDATED IMAGE UPLOADER ---
 const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh lên" }) => {
   const fileInputRef = useRef(null);
   const MAX_SIZE_MB = 20; 
@@ -355,18 +432,27 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
   const currentSizeMB = (totalSize / (1024 * 1024)).toFixed(2);
   const isOverLimit = parseFloat(currentSizeMB) > MAX_SIZE_MB;
 
-  const handleFileChange = (e) => {
+  const handleFileChange = async (e) => {
     const selectedFiles = Array.from(e.target.files);
-    processFiles(selectedFiles);
+    await processFiles(selectedFiles);
   };
 
-  const processFiles = (selectedFiles) => {
-    const newFiles = selectedFiles.map(file => ({
-      file,
-      preview: URL.createObjectURL(file)
+  const processFiles = async (selectedFiles) => {
+    const processedWithDims = await Promise.all(selectedFiles.map(async (file) => {
+        const dims = await new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => resolve({ w: img.width, h: img.height });
+            img.src = URL.createObjectURL(file);
+        });
+        return {
+            file,
+            preview: URL.createObjectURL(file),
+            dims 
+        };
     }));
-    if (multiple) setFiles(prev => [...prev, ...newFiles]);
-    else setFiles([newFiles[0]]);
+
+    if (multiple) setFiles(prev => [...prev, ...processedWithDims]);
+    else setFiles([processedWithDims[0]]);
   };
 
   const handleDragOver = (e) => {
@@ -374,12 +460,12 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
     e.stopPropagation(); 
   };
 
-  const handleDrop = (e) => {
+  const handleDrop = async (e) => {
     e.preventDefault();
     e.stopPropagation(); 
     const droppedFiles = Array.from(e.dataTransfer.files);
     if (droppedFiles.length > 0) {
-      processFiles(droppedFiles);
+      await processFiles(droppedFiles);
     }
   };
 
@@ -408,7 +494,6 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
           </div>
         ) : (
           <>
-            {/* Vùng Lưới Ảnh (Scrollable) */}
             <div className="flex-1 overflow-y-auto custom-scrollbar p-3 min-h-0">
                <div className="grid grid-cols-3 gap-2 w-full">
                   {files.map((item, idx) => (
@@ -428,7 +513,6 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
                     </div>
                   ))}
                   
-                  {/* Nút thêm ảnh */}
                   <div 
                     className="aspect-square rounded-lg border border-dashed border-white/20 flex flex-col items-center justify-center text-white/30 hover:text-white/80 hover:border-white/40 hover:bg-white/5 transition-all cursor-pointer"
                     onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
@@ -440,7 +524,6 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
                </div>
             </div>
 
-            {/* Status Bar (Fixed Bottom) */}
             <div className="bg-black/40 p-2 border-t border-white/5 shrink-0 z-10 backdrop-blur-md">
               <div className="flex justify-between text-[10px] mb-1">
                 <span className="text-white/60 font-medium">Dung lượng</span>
@@ -453,10 +536,6 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
                   className={`h-full transition-all duration-300 ${isOverLimit ? 'bg-red-500' : 'bg-blue-500'}`}
                   style={{ width: `${Math.min((parseFloat(currentSizeMB) / MAX_SIZE_MB) * 100, 100)}%` }}
                 />
-              </div>
-              <div className="text-[9px] text-white/40 italic flex justify-between items-center">
-                 <span>Mẹo: Nhập "ảnh #1", "ảnh #2" trong prompt</span>
-                 {isOverLimit && <span className="text-red-400 font-bold animate-pulse">Quá tải!</span>}
               </div>
             </div>
           </>
@@ -479,9 +558,11 @@ export default function AIArtApp() {
   const [histories, setHistories] = useState({ 1: [], 2: [], 3: [], 4: [] });
   const [lightboxImg, setLightboxImg] = useState(null);
 
-  // --- XỬ LÝ DÁN ẢNH (PASTE) TOÀN CỤC ---
+  // Track kích thước gốc
+  const originalSize = inputFiles.length > 0 && inputFiles[0].dims ? inputFiles[0].dims : null;
+
   useEffect(() => {
-    const handlePaste = (e) => {
+    const handlePaste = async (e) => {
       if (activeTab === 1) return;
 
       const items = e.clipboardData?.items;
@@ -497,11 +578,19 @@ export default function AIArtApp() {
 
       if (pastedFiles.length > 0) {
         e.preventDefault();
-        const newFiles = pastedFiles.map(file => ({
-          file,
-          preview: URL.createObjectURL(file)
+        const processed = await Promise.all(pastedFiles.map(async (file) => {
+             const dims = await new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => resolve({ w: img.width, h: img.height });
+                img.src = URL.createObjectURL(file);
+            });
+            return {
+                file,
+                preview: URL.createObjectURL(file),
+                dims
+            };
         }));
-        setInputFiles(prev => [...prev, ...newFiles]);
+        setInputFiles(prev => [...prev, ...processed]);
       }
     };
 
@@ -509,7 +598,6 @@ export default function AIArtApp() {
     return () => window.removeEventListener('paste', handlePaste);
   }, [activeTab]);
 
-  // --- XỬ LÝ THOÁT LIGHTBOX BẰNG PHÍM ESC ---
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
@@ -563,7 +651,10 @@ export default function AIArtApp() {
         let taskType = 'edit';
         if (activeTab === 3) taskType = 'sketch';
         if (activeTab === 4) taskType = 'face';
-        url = await generateMultimodalImage(prompt, inputFiles, taskType);
+        
+        // CẬP NHẬT: Truyền ratioId cho cả Face ID (4) và Sketch (3)
+        const ratioToUse = (activeTab === 4 || activeTab === 3) ? selectedRatioId : null;
+        url = await generateMultimodalImage(prompt, inputFiles, taskType, ratioToUse);
       }
 
       setResultImage(url);
@@ -579,13 +670,59 @@ export default function AIArtApp() {
     }
   };
 
+  // LOGIC DOWNLOAD: Upscale + Sharpening
   const downloadImage = (url) => {
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `AIGen_${activeTab}_${Date.now()}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = url;
+    img.onload = () => {
+        let downloadUrl = url;
+        
+        const currentRatio = img.width / img.height;
+        let targetW = img.width;
+        let targetH = img.height;
+        let shouldUpscale = false;
+
+        if (originalSize) {
+             const origRatio = originalSize.w / originalSize.h;
+             // Kiểm tra độ lệch tỉ lệ
+             if (Math.abs(currentRatio - origRatio) < 0.05) {
+                 // Tỉ lệ giống nhau -> Upscale về size gốc
+                 if (img.width < originalSize.w) {
+                     targetW = originalSize.w;
+                     targetH = originalSize.h;
+                     shouldUpscale = true;
+                 }
+             } else {
+                 // Tỉ lệ khác nhau (do đã chọn crop 16:9 chẳng hạn) -> Upscale gấp đôi cho nét
+                 targetW = img.width * 2;
+                 targetH = img.height * 2;
+                 shouldUpscale = true;
+             }
+        }
+
+        if (shouldUpscale) {
+             const canvas = document.createElement('canvas');
+             canvas.width = targetW;
+             canvas.height = targetH;
+             const ctx = canvas.getContext('2d');
+             
+             ctx.imageSmoothingEnabled = true;
+             ctx.imageSmoothingQuality = 'high';
+             
+             ctx.drawImage(img, 0, 0, targetW, targetH);
+             applySharpening(ctx, targetW, targetH, 0.7); 
+
+             downloadUrl = canvas.toDataURL('image/png'); 
+        }
+        
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `AIGen_${activeTab}_HQ_${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
   };
 
   const renderControls = () => {
@@ -632,6 +769,27 @@ export default function AIArtApp() {
              <div className="bg-purple-500/10 border border-purple-500/20 px-3 py-2 rounded-lg text-xs text-purple-200/80 shrink-0">
                <b>Biến phác thảo thành ảnh thật</b>.
              </div>
+
+             {/* CẬP NHẬT: Thêm phần chọn tỉ lệ cho Sketch */}
+             <div className="shrink-0">
+                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ khung hình (Output)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.values(RATIO_CONFIG).map((ratio) => (
+                    <button
+                      key={ratio.id}
+                      onClick={() => handleRatioChange(ratio.id)}
+                      className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between
+                        ${selectedRatioId === ratio.id 
+                          ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' 
+                          : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}
+                    >
+                      <span className="font-medium text-[10px]">{ratio.label}</span>
+                      {selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}
+                    </button>
+                  ))}
+                </div>
+             </div>
+
              <div className="flex-1 min-h-0">
                <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh phác thảo" />
              </div>
@@ -643,6 +801,27 @@ export default function AIArtApp() {
              <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg text-xs text-emerald-200/80 shrink-0">
                <b>Face Generation</b>. Upload ảnh mẫu để AI tham khảo.
              </div>
+             
+             {/* Thêm phần chọn tỉ lệ cho Face ID */}
+             <div className="shrink-0">
+                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ khung hình (Output)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.values(RATIO_CONFIG).map((ratio) => (
+                    <button
+                      key={ratio.id}
+                      onClick={() => handleRatioChange(ratio.id)}
+                      className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between
+                        ${selectedRatioId === ratio.id 
+                          ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' 
+                          : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}
+                    >
+                      <span className="font-medium text-[10px]">{ratio.label}</span>
+                      {selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}
+                    </button>
+                  ))}
+                </div>
+             </div>
+
              <div className="flex-1 min-h-0">
                <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh khuôn mặt" />
              </div>
@@ -770,6 +949,7 @@ export default function AIArtApp() {
               onDownload={downloadImage}
               error={error}
               onRemoveHistory={(index) => handleRemoveHistory(activeTab, index)}
+              originalSize={originalSize}
             />
           </div>
         </div>
@@ -794,7 +974,7 @@ export default function AIArtApp() {
                 onClick={() => downloadImage(lightboxImg)}
                 className="px-6 py-2.5 bg-white text-black font-bold rounded-full hover:bg-gray-200 transition flex items-center gap-2 shadow-lg shadow-white/10"
               >
-                <Download size={18} /> Tải về máy
+                <Download size={18} /> Tải ảnh về
               </button>
           </div>
         </div>
