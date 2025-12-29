@@ -110,7 +110,7 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
 
         // 3. VẼ LÊN TỜ GIẤY (Xử lý nền thông minh)
         if (targetRatioId) {
-            // CẬP NHẬT QUAN TRỌNG: Áp dụng nền trắng cho cả 'face' để tạo "Tờ giấy trắng"
+            // CẬP NHẬT: Luôn dùng nền trắng cho Face ID để tạo khoảng trống rõ ràng
             if (taskType === 'sketch' || taskType === 'face') {
                 ctx.fillStyle = '#FFFFFF'; 
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
@@ -227,36 +227,47 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
   let ratioInstruction = "";
   if (ratioId) {
       if (taskType === 'sketch') {
+          // PROMPT CẬP NHẬT CHO SKETCH: QUY TRÌNH 3 BƯỚC TƯƠNG TỰ FACE ID
           ratioInstruction = `
-          **INPUT CONFIGURATION**: The input is a sketch placed on a WHITE CANVAS of size ${RATIO_CONFIG[ratioId].label}.
-          - The WHITE AREA is empty space.
-          - The SKETCH in the center is the subject.
-          - **ACTION**: Generate a full scene filling the white areas. Do not treat the white borders as part of the object.`;
+          **STRICT WORKFLOW (Follow in order)**:
+          
+          1. **STEP 1: SCENE VISUALIZATION (Mental Canvas)**
+             - Visualize a COMPLETELY NEW PHOTOREALISTIC SCENE that fits the entire canvas aspect ratio (${RATIO_CONFIG[ratioId].label}).
+             - The scene is defined by the User's Prompt: "${prompt}".
+             - IGNORE the white background of the input. Treat the canvas as a full rectangular frame waiting to be filled.
+          
+          2. **STEP 2: STRUCTURE ANALYSIS (Input Decoding)**
+             - Analyze the sketch strokes in the center.
+             - EXTRACT: Geometry, shapes, and composition from the drawing.
+             - INTERPRET: Convert primitive lines into real-world object boundaries (e.g., circle -> sun/ball, rectangle -> building).
+          
+          3. **STEP 3: EXECUTION (Render & Synthesis)**
+             - RENDER the full scene visualized in Step 1.
+             - MATERIALIZE the objects based on the Step 2 structure using photorealistic textures (glass, metal, skin, nature).
+             - **CRITICAL**: The final image must fill 100% of the canvas. NO white borders. NO remaining pencil strokes.
+          `;
       } else if (taskType === 'face') {
-          // PROMPT ĐẶC BIỆT CHO FACE ID: LOGIC "GENERATE -> EDIT"
+          // PROMPT CẬP NHẬT: QUY TRÌNH 3 BƯỚC + YÊU CẦU PHOTOREALISM CỰC CAO
           ratioInstruction = `
-          **INPUT ANALYSIS & GENERATION PROTOCOL**:
-          1. **INPUT STRUCTURE**: You are looking at a reference photo (center) placed on a WHITE PLACEHOLDER CANVAS (${RATIO_CONFIG[ratioId].label}).
+          **STRICT WORKFLOW (Follow in order)**:
           
-          2. **STEP 1: IDENTITY EXTRACTION**:
-             - Analyze the person in the center image.
-             - EXTRACT: Face features (eyes, nose, mouth), Hair style, and Body Physique/Shape (if visible).
-             - IGNORE: The original background of the center image.
-             - IGNORE: The white surrounding borders.
+          1. **STEP 1: SCENE CREATION (Mental Visualization)**
+             - First, visualize a COMPLETELY NEW IMAGE that fits the entire canvas aspect ratio (${RATIO_CONFIG[ratioId].label}).
+             - This scene is based ONLY on the User's Prompt text: "${prompt}".
+             - IGNORE the white background and the pasted look of the input image. Treat the canvas as blank for this step.
           
-          3. **STEP 2: FULL SCENE GENERATION**:
-             - Generate a COMPLETELY NEW IMAGE that fills the ENTIRE CANVAS (${RATIO_CONFIG[ratioId].label}).
-             - The scene (background, lighting, context) must follow the User's Prompt.
-             - **CRITICAL**: Do NOT preserve any white pixels. Do NOT preserve the original small background.
+          2. **STEP 2: FEATURE EXTRACTION (Input Analysis)**
+             - Now, look at the small center image provided.
+             - EXTRACT: Facial Features (Eyes, Nose, Mouth).
+             - EXTRACT: Body Physique/Build (Skinny, Fat, Muscular, etc.). If it's a headshot, assume a build that fits the face.
           
-          4. **STEP 3: IDENTITY INJECTION**:
-             - Place the extracted person (Face + Body Shape) into this new scene.
-             - Ensure the person looks natural in the new environment (matched lighting, perspective).
+          3. **STEP 3: EXECUTION (Edit & Merge)**
+             - RENDER the scene visualized in Step 1.
+             - INSERT the character with the EXTRACTED FEATURES from Step 2 into this scene.
+             - **CRITICAL**: The final image must fill 100% of the canvas. NO white borders. NO original background remnants.
           `;
       } else {
-          ratioInstruction = `
-          **INPUT CONFIGURATION**: The input is padded to ${RATIO_CONFIG[ratioId].label} with blurred context.
-          - **ACTION**: Outpaint/Extend the scene into the blurred areas.`;
+          ratioInstruction = `**ACTION**: Outpaint/Extend the scene into the blurred areas.`;
       }
   } else {
       ratioInstruction = "**ASPECT RATIO**: Maintain input aspect ratio.";
@@ -266,7 +277,7 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
     GENERAL QUALITY RULES:
     1. **SHARPNESS**: High micro-contrast and edge definition.
     2. **TEXTURE**: Realistic surface details (4K/8K style).
-    3. **NO ARTIFACTS**: Clean, noise-free output.
+    3. **PHOTOREALISM**: The result must look like a real photo (DSLR). No cartoons.
     ${ratioInstruction}
   `;
 
@@ -278,25 +289,42 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
       TASK: Perform the user's edit request on the image.
     `;
   } else if (taskType === 'sketch') {
+    // SYSTEM CONTEXT CHO SKETCH - LOGIC MỚI
     systemContext = `
       ${commonInstructions}
-      ROLE: Concept Artist & Renderer.
-      TASK: Convert the SKETCH lines into a PHOTOREALISTIC image.
-      - **INTERPRETATION**: Infer realistic materials from the strokes.
-      - **OUTPAINTING**: Generate a fitting environment (sky, landscape, room) to fill the white void around the sketch.
-    `;
-  } else if (taskType === 'face') {
-    // PROMPT DÀNH RIÊNG CHO FACE ID
-    systemContext = `
-      ${commonInstructions}
-      ROLE: Advanced Identity Re-contextualizer.
-      TASK: Re-create the user's photo in a new context.
+      ROLE: Hyper-Realistic Render Engine & Concept Artist.
+      TASK: Transform the rough sketch into a high-end Photograph (DSLR quality).
+      
+      **CORE INSTRUCTION**: 
+      You are CREATING A NEW IMAGE from scratch using the sketch as a structural guide.
       
       **EXECUTION PRIORITY**:
-      1. **IGNORE WHITE SPACE**: The white background is just a container. FILL IT.
-      2. **IGNORE ORIGINAL BACKGROUND**: The original background behind the face is irrelevant. DISCARD IT.
-      3. **FOCUS ON IDENTITY**: The user wants to see THIS PERSON in a NEW PLACE.
+      1. **IGNORE WHITE SPACE**: The white background is just a container. FILL IT COMPLETELY with a realistic environment.
+      2. **INTERPRET STROKES**: Do not just color inside the lines. Replace lines with realistic edges and textures.
+      3. **LIGHTING & PHYSICS**: Apply consistent Global Illumination across the entire scene (subject + generated background).
       4. **FULL FRAME**: The result must be a full rectangular image with NO borders.
+    `;
+  } else if (taskType === 'face') {
+    // SYSTEM CONTEXT CHO FACE ID - HYPER-REALISM UPDATE
+    systemContext = `
+      ${commonInstructions}
+      ROLE: World-Class Portrait Photographer & VFX Supervisor.
+      TASK: Create a HYPER-REALISTIC, indistinguishable-from-reality photograph.
+
+      **STYLE & QUALITY MANDATES (MUST FOLLOW)**:
+      1.  **TRUE PHOTOREALISM**: The output must look like a RAW photo taken with a high-end DSLR (e.g., Sony A7R or Canon R5) and 85mm lens. 
+      2.  **SKIN TEXTURE**: You MUST render visible skin pores, fine wrinkles, vellus hair, and natural skin imperfections. Do NOT generate smooth, plastic, or "airbrushed" skin.
+      3.  **LIGHTING & PHYSICS**: Use realistic Global Illumination. Shadows must interact naturally with the facial structure and clothing folds. Subsurface scattering must be visible on skin.
+      4.  **NO AI ARTIFACTS**: Eliminate any "waxy" look or cartoonish eyes. The iris must have depth and refraction.
+      5.  **INTEGRATION**: The face must not look "pasted". Match the ISO noise/grain of the face with the generated body and background perfectly.
+
+      **CORE INSTRUCTION**: 
+      You are NOT just editing the input image. You are CREATING A NEW IMAGE from scratch (Step 1) and then ensuring the main subject looks like the person in the input (Step 2 & 3).
+      
+      **AVOID THESE ERRORS**:
+      - Do NOT leave white space.
+      - Do NOT keep the original rectangular crop of the input face.
+      - Do NOT make the person look like a cartoon or 3D model.
     `;
   }
 
@@ -353,7 +381,7 @@ const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownl
           <div className="flex flex-col items-center justify-center text-blue-400 animate-pulse">
             <Sparkles size={48} className="mb-4 animate-spin-slow" />
             <span className="text-lg font-medium tracking-wider">AI đang xử lý...</span>
-            <span className="text-xs text-white/40 mt-2">Đang phân tích, tái tạo chi tiết và tăng độ nét...</span>
+            <span className="text-xs text-white/40 mt-2">Đang phân tích đặc điểm và tái tạo ảnh...</span>
           </div>
         ) : error ? (
            <div className="flex flex-col items-center justify-center text-red-400 text-center p-4">
@@ -652,7 +680,6 @@ export default function AIArtApp() {
         if (activeTab === 3) taskType = 'sketch';
         if (activeTab === 4) taskType = 'face';
         
-        // CẬP NHẬT: Truyền ratioId cho cả Face ID (4) và Sketch (3)
         const ratioToUse = (activeTab === 4 || activeTab === 3) ? selectedRatioId : null;
         url = await generateMultimodalImage(prompt, inputFiles, taskType, ratioToUse);
       }
@@ -670,7 +697,6 @@ export default function AIArtApp() {
     }
   };
 
-  // LOGIC DOWNLOAD: Upscale + Sharpening
   const downloadImage = (url) => {
     const img = new Image();
     img.crossOrigin = "anonymous";
@@ -685,16 +711,13 @@ export default function AIArtApp() {
 
         if (originalSize) {
              const origRatio = originalSize.w / originalSize.h;
-             // Kiểm tra độ lệch tỉ lệ
              if (Math.abs(currentRatio - origRatio) < 0.05) {
-                 // Tỉ lệ giống nhau -> Upscale về size gốc
                  if (img.width < originalSize.w) {
                      targetW = originalSize.w;
                      targetH = originalSize.h;
                      shouldUpscale = true;
                  }
              } else {
-                 // Tỉ lệ khác nhau (do đã chọn crop 16:9 chẳng hạn) -> Upscale gấp đôi cho nét
                  targetW = img.width * 2;
                  targetH = img.height * 2;
                  shouldUpscale = true;
