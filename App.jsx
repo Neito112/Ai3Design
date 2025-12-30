@@ -111,11 +111,13 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         // 3. VẼ VÀO CANVAS
         if (targetRatioId) {
             if (taskType === 'face') {
-                // LOGIC MỚI CHO FACE ID: CROP & COVER (LẤP ĐẦY KHUNG)
-                // Không dùng bất kỳ nền màu nào. Phóng to ảnh gốc để lấp đầy toàn bộ khung hình đích.
-                // Điều này giúp loại bỏ hoàn toàn viền/khoảng trống, đảm bảo đúng tỉ lệ.
+                // LOGIC CHUẨN CHO FACE ID: CONTAIN (GIỮ NGUYÊN ẢNH GỐC TRÊN NỀN TRẮNG)
+                // Để đảm bảo không bị cắt mất mặt, ta thu nhỏ ảnh gốc vừa khít khung (Contain).
+                // Phần thừa sẽ là màu trắng. Prompt sẽ chịu trách nhiệm bảo AI vẽ đè lên phần trắng này.
+                ctx.fillStyle = '#FFFFFF'; 
+                ctx.fillRect(0, 0, finalWidth, finalHeight);
                 
-                const scale = Math.max(finalWidth / img.width, finalHeight / img.height);
+                const scale = Math.min(finalWidth / img.width, finalHeight / img.height);
                 const x = (finalWidth / 2) - (img.width / 2) * scale;
                 const y = (finalHeight / 2) - (img.height / 2) * scale;
                 
@@ -124,13 +126,12 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                 // Sketch: Nền trắng
                 ctx.fillStyle = '#FFFFFF'; 
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
-                // Vẽ ảnh gốc vào chính giữa (Contain)
                 const scale = Math.min(finalWidth / img.width, finalHeight / img.height);
                 const x = (finalWidth / 2) - (img.width / 2) * scale;
                 const y = (finalHeight / 2) - (img.height / 2) * scale;
                 ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
             } else {
-                // Edit: Logic cũ (Nền mờ)
+                // Edit: Nền mờ
                 ctx.filter = 'blur(40px) brightness(0.8)';
                 const fillScale = Math.max(finalWidth / img.width, finalHeight / img.height);
                 ctx.drawImage(img, 
@@ -247,29 +248,30 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
           2. **INTERPRETATION**: Use the sketch as a layout guide only. Replace lines with real textures.
           `;
       } else if (taskType === 'face') {
-          // PROMPT FACE ID: QUY TRÌNH 3 BƯỚC CỦA NGƯỜI DÙNG
+          // PROMPT FACE ID: CHÍNH XÁC 3 BƯỚC VÀ XỬ LÝ NỀN TRẮNG
           ratioInstruction = `
-          **STRICT WORKFLOW (DO NOT DEVIATE)**:
+          **STRICT EXECUTION PROTOCOL (MUST FOLLOW ORDER)**:
 
-          **STEP 1: ZERO-SHOT GENERATION (IGNORE INPUT)**
-          - **Action**: Treat the input image as NON-EXISTENT for scene creation.
-          - **Task**: Generate a **COMPLETELY NEW IMAGE** based *only* on the text prompt: "${prompt}".
-          - **Canvas**: The image must fill the ${RATIO_CONFIG[ratioId].label} frame.
-          - **Content**: Create a scene with a **DUMMY MODEL** (a generic person) in the outfit/pose described in the prompt.
-          - **Style**: **Realistic Photography, Real Life** (unless prompt specifies otherwise).
+          **INPUT DATA**: The input image provided is a **REFERENCE SHEET** placed on a white background. 
+          - The white background is EMPTY SPACE. You MUST fill it completely.
+          - The central image is the source of Identity.
 
-          **STEP 2: FEATURE EXTRACTION (FROM INPUT)**
-          - **Action**: Now, analyze the input image.
-          - **EXTRACT**: Facial Features (Eyes, Nose, Mouth) and Body Physique (Fat/Thin/Muscular).
-          - **DISCARD**: 
-             - **Clothes**: IGNORE input clothes. The subject MUST wear the outfit generated for the dummy model in Step 1.
-             - **Accessories**: REMOVE glasses, bags, hats from the input.
-             - **Hair**: REMOVE original hairstyle.
+          **STEP 1: SCENE CREATION (Imagination)**
+          - **Action**: Imagine a **BRAND NEW PHOTOGRAPH** that fills the entire canvas (${RATIO_CONFIG[ratioId].label}).
+          - **Content**: Based strictly on the prompt: "${prompt}".
+          - **Dummy Model**: Visualize a person in this scene wearing the requested outfit.
+          - **Rule**: Completely **IGNORE** the input image's original background and clothes. They do not exist in the new scene.
 
-          **STEP 3: MERGE (FACE SWAP)**
-          - **Action**: Swap the extracted Identity (Step 2) onto the Dummy Model (Step 1).
-          - **Refine**: Match lighting and skin texture.
-          - **Result**: A final photo with the NEW SCENE and OLD FACE.
+          **STEP 2: FEATURE EXTRACTION (Analysis)**
+          - **Action**: Look at the reference person in the input.
+          - **EXTRACT**: The **FACE** (Eyes, Nose, Mouth) and **BODY BUILD** (Skinny/Fat/Muscular).
+          - **FILTER**: Discard the input clothes, glasses, and hat.
+
+          **STEP 3: MERGE & FINALIZE (Generation)**
+          - **Action**: Render the scene from Step 1, but with the **FACE** extracted in Step 2.
+          - **IDENTITY LOCK**: The face in the output MUST be the same person as in the input.
+          - **FILL CANVAS**: **EXTEND** the background to cover all white areas. The final image must be full-bleed with NO white borders.
+          - **Style**: Realistic Photography (unless prompt says otherwise).
           `;
       } else {
           ratioInstruction = `**ACTION**: Outpaint/Extend the scene into the blurred areas.`;
@@ -300,26 +302,26 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
       TASK: Convert sketch to High-End Photograph.
     `;
   } else if (taskType === 'face') {
-    // SYSTEM CONTEXT CHO FACE ID
+    // SYSTEM CONTEXT CHO FACE ID - QUY TRÌNH CHUẨN
     systemContext = `
       ${commonInstructions}
-      ROLE: Advanced Visual Identity Synthesizer.
+      ROLE: Advanced Identity & Scene Synthesizer.
       
-      **MISSION**:
-      1. Create a NEW SCENE from text (with a dummy model).
-      2. Extract Face Identity from input.
-      3. Apply Face to New Scene.
+      **OBJECTIVE**: 
+      1. Generate a NEW SCENE (Step 1).
+      2. Extract Identity (Step 2).
+      3. Merge into Final Photo (Step 3).
 
-      **MANDATORY STYLE**:
-      - **Real Life Photography**, Photorealistic.
-      - **NO CARTOONS**, **NO 3D RENDERS**.
-      - **NO BORDERS**: The image must be full-bleed.
+      **CRITICAL**: 
+      - The output must be **THE SAME PERSON** as the input.
+      - But in a **DIFFERENT PLACE** with **DIFFERENT CLOTHES**.
+      - **NO WHITE BORDERS**. Fill the canvas.
     `;
   }
 
   // FORCE STYLE IN USER PROMPT
   const styleSuffix = taskType === 'face' 
-    ? ". \n\n**REQUIREMENT**: Realistic Photo, 8k, Detailed skin texture. \n**NEGATIVE**: Cartoon, 3D, Anime, Painting, Airbrushed, Plastic skin, White borders, Black borders, Glasses, Bag, Backpack, Accessories, Old clothes." 
+    ? ". \n\n**REQUIREMENT**: Realistic Photo, 8k, Natural skin texture, Identity match. \n**NEGATIVE**: Cartoon, 3D, Anime, Painting, Airbrushed, Plastic skin, White borders, Black borders, Glasses, Bag, Backpack, Accessories, Old clothes, Input background." 
     : "";
   const fullPrompt = `${systemContext}\n\nUser's Request: ${prompt}${styleSuffix}`;
 
@@ -373,8 +375,8 @@ const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownl
         {isGenerating ? (
           <div className="flex flex-col items-center justify-center text-blue-400 animate-pulse">
             <Sparkles size={48} className="mb-4 animate-spin-slow" />
-            <span className="text-lg font-medium tracking-wider">AI múa...</span>
-            <span className="text-xs text-white/40 mt-2">Đợi chờ là mất thì giờ...</span>
+            <span className="text-lg font-medium tracking-wider">AI đang xử lý...</span>
+            <span className="text-xs text-white/40 mt-2">1. Tạo ảnh mới &rarr; 2. Phân tích &rarr; 3. Hợp nhất...</span>
           </div>
         ) : error ? (
            <div className="flex flex-col items-center justify-center text-red-400 text-center p-4">
