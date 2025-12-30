@@ -111,16 +111,10 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         // 3. VẼ VÀO CANVAS
         if (targetRatioId) {
             if (taskType === 'face') {
-                // LOGIC CHUẨN CHO FACE ID: CONTAIN (GIỮ NGUYÊN ẢNH GỐC TRÊN NỀN TRẮNG)
-                // Để đảm bảo không bị cắt mất mặt, ta thu nhỏ ảnh gốc vừa khít khung (Contain).
-                // Phần thừa sẽ là màu trắng. Prompt sẽ chịu trách nhiệm bảo AI vẽ đè lên phần trắng này.
-                ctx.fillStyle = '#FFFFFF'; 
-                ctx.fillRect(0, 0, finalWidth, finalHeight);
-                
-                const scale = Math.min(finalWidth / img.width, finalHeight / img.height);
+                // LOGIC FACE ID: CROP & COVER
+                const scale = Math.max(finalWidth / img.width, finalHeight / img.height);
                 const x = (finalWidth / 2) - (img.width / 2) * scale;
                 const y = (finalHeight / 2) - (img.height / 2) * scale;
-                
                 ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
             } else if (taskType === 'sketch') {
                 // Sketch: Nền trắng
@@ -131,7 +125,7 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                 const y = (finalHeight / 2) - (img.height / 2) * scale;
                 ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
             } else {
-                // Edit: Nền mờ
+                // Edit: Nền mờ nhẹ để giữ content gốc
                 ctx.filter = 'blur(40px) brightness(0.8)';
                 const fillScale = Math.max(finalWidth / img.width, finalHeight / img.height);
                 ctx.drawImage(img, 
@@ -248,33 +242,15 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
           2. **INTERPRETATION**: Use the sketch as a layout guide only. Replace lines with real textures.
           `;
       } else if (taskType === 'face') {
-          // PROMPT FACE ID: CHÍNH XÁC 3 BƯỚC VÀ XỬ LÝ NỀN TRẮNG
+          // PROMPT FACE ID CHUẨN
           ratioInstruction = `
-          **STRICT EXECUTION PROTOCOL (MUST FOLLOW ORDER)**:
-
-          **INPUT DATA**: The input image provided is a **REFERENCE SHEET** placed on a white background. 
-          - The white background is EMPTY SPACE. You MUST fill it completely.
-          - The central image is the source of Identity.
-
-          **STEP 1: SCENE CREATION (Imagination)**
-          - **Action**: Imagine a **BRAND NEW PHOTOGRAPH** that fills the entire canvas (${RATIO_CONFIG[ratioId].label}).
-          - **Content**: Based strictly on the prompt: "${prompt}".
-          - **Dummy Model**: Visualize a person in this scene wearing the requested outfit.
-          - **Rule**: Completely **IGNORE** the input image's original background and clothes. They do not exist in the new scene.
-
-          **STEP 2: FEATURE EXTRACTION (Analysis)**
-          - **Action**: Look at the reference person in the input.
-          - **EXTRACT**: The **FACE** (Eyes, Nose, Mouth) and **BODY BUILD** (Skinny/Fat/Muscular).
-          - **FILTER**: Discard the input clothes, glasses, and hat.
-
-          **STEP 3: MERGE & FINALIZE (Generation)**
-          - **Action**: Render the scene from Step 1, but with the **FACE** extracted in Step 2.
-          - **IDENTITY LOCK**: The face in the output MUST be the same person as in the input.
-          - **FILL CANVAS**: **EXTEND** the background to cover all white areas. The final image must be full-bleed with NO white borders.
-          - **Style**: Realistic Photography (unless prompt says otherwise).
+          **MANDATORY 3-STEP PROCESS**:
+          1. **STEP 1**: IGNORE input content. Generate NEW SCENE (Photorealistic, Full Frame ${RATIO_CONFIG[ratioId].label}) from prompt: "${prompt}". Create a dummy model.
+          2. **STEP 2**: Extract FACE IDENTITY from input (Ignore clothes/background).
+          3. **STEP 3**: Swap Identity onto the Dummy Model in the New Scene. Match lighting/skin.
           `;
       } else {
-          ratioInstruction = `**ACTION**: Outpaint/Extend the scene into the blurred areas.`;
+          ratioInstruction = `**ACTION**: Outpaint/Extend the scene into the blurred areas if needed.`;
       }
   } else {
       ratioInstruction = "**ASPECT RATIO**: Maintain input aspect ratio.";
@@ -289,11 +265,21 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
   `;
 
   let systemContext = "";
+  // CẬP NHẬT: PROMPT MỚI CHO CHẾ ĐỘ EDIT ĐỂ HIỂU LỆNH TỐT HƠN
   if (taskType === 'edit') {
     systemContext = `
       ${commonInstructions}
-      ROLE: Expert Photo Editor.
-      TASK: Perform the user's edit request on the image.
+      ROLE: Senior VFX Artist & Photo Manipulator.
+      TASK: You are a command-line image editing tool. EXECUTE the User's Instruction on the Input Image.
+
+      **OPERATIONAL RULES (MUST FOLLOW)**:
+      1. **CHANGE IS MANDATORY**: The output MUST be different from the input. Do NOT return the original image.
+      2. **PRECISE TARGETING**: 
+         - If prompt says "Change X to Y", ONLY modify X.
+         - If prompt says "Add Z", insert Z naturally.
+         - If prompt says "Remove A", replace A with appropriate background.
+      3. **INTEGRITY**: Keep the un-edited parts of the image (lighting, style, resolution) exactly the same as the input.
+      4. **UNDERSTANDING**: If the prompt implies a weather/lighting change (e.g. "make it night"), change the whole atmosphere.
     `;
   } else if (taskType === 'sketch') {
     systemContext = `
@@ -302,28 +288,23 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
       TASK: Convert sketch to High-End Photograph.
     `;
   } else if (taskType === 'face') {
-    // SYSTEM CONTEXT CHO FACE ID - QUY TRÌNH CHUẨN
     systemContext = `
       ${commonInstructions}
-      ROLE: Advanced Identity & Scene Synthesizer.
-      
-      **OBJECTIVE**: 
-      1. Generate a NEW SCENE (Step 1).
-      2. Extract Identity (Step 2).
-      3. Merge into Final Photo (Step 3).
-
-      **CRITICAL**: 
-      - The output must be **THE SAME PERSON** as the input.
-      - But in a **DIFFERENT PLACE** with **DIFFERENT CLOTHES**.
-      - **NO WHITE BORDERS**. Fill the canvas.
+      ROLE: Advanced Visual Identity Synthesizer.
+      **TASK**: Generate NEW SCENE from text, then implant identity.
+      **INPUT RULES**: Input is for FACE REFERENCE ONLY. IGNORE input background/clothes.
     `;
   }
 
   // FORCE STYLE IN USER PROMPT
   const styleSuffix = taskType === 'face' 
-    ? ". \n\n**REQUIREMENT**: Realistic Photo, 8k, Natural skin texture, Identity match. \n**NEGATIVE**: Cartoon, 3D, Anime, Painting, Airbrushed, Plastic skin, White borders, Black borders, Glasses, Bag, Backpack, Accessories, Old clothes, Input background." 
+    ? ". \n\n**REQUIREMENT**: Realistic Photo, 8k, Detailed skin texture. \n**NEGATIVE**: Cartoon, 3D, Anime, Painting, Airbrushed, Plastic skin, White borders, Black borders, Glasses, Bag, Backpack, Accessories, Old clothes." 
     : "";
-  const fullPrompt = `${systemContext}\n\nUser's Request: ${prompt}${styleSuffix}`;
+  
+  // Thêm tiền tố cho chế độ Edit để AI hiểu rõ đây là lệnh
+  const promptPrefix = taskType === 'edit' ? "EDIT INSTRUCTION: " : "";
+  
+  const fullPrompt = `${systemContext}\n\nUser's Request: ${promptPrefix}${prompt}${styleSuffix}`;
 
   const payload = {
     contents: [{
@@ -376,7 +357,7 @@ const ResultSection = ({ resultImage, isGenerating, history, onViewFull, onDownl
           <div className="flex flex-col items-center justify-center text-blue-400 animate-pulse">
             <Sparkles size={48} className="mb-4 animate-spin-slow" />
             <span className="text-lg font-medium tracking-wider">AI đang xử lý...</span>
-            <span className="text-xs text-white/40 mt-2">1. Tạo ảnh mới &rarr; 2. Phân tích &rarr; 3. Hợp nhất...</span>
+            <span className="text-xs text-white/40 mt-2">Đang thực hiện yêu cầu của bạn...</span>
           </div>
         ) : error ? (
            <div className="flex flex-col items-center justify-center text-red-400 text-center p-4">
@@ -675,6 +656,8 @@ export default function AIArtApp() {
         if (activeTab === 3) taskType = 'sketch';
         if (activeTab === 4) taskType = 'face';
         
+        // CẬP NHẬT: Truyền ratioId cho cả Face ID (4) và Sketch (3)
+        // Edit (2) dùng logic cũ
         const ratioToUse = (activeTab === 4 || activeTab === 3) ? selectedRatioId : null;
         url = await generateMultimodalImage(prompt, inputFiles, taskType, ratioToUse);
       }
@@ -699,12 +682,30 @@ export default function AIArtApp() {
     img.onload = () => {
         let downloadUrl = url;
         
+        // Logic Upscale cho Face ID và Sketch (có thể đã bị AI giảm độ phân giải)
         const currentRatio = img.width / img.height;
         let targetW = img.width;
         let targetH = img.height;
         let shouldUpscale = false;
 
-        if (originalSize) {
+        // Nếu có ratio config, ta ưu tiên upscale về size chuẩn của ratio đó (VD: 1024x1024, 1280x720)
+        // để đảm bảo ảnh sắc nét nhất
+        if (activeTab === 4 || activeTab === 3) {
+             // Lấy size chuẩn từ config
+             const config = RATIO_CONFIG[selectedRatioId];
+             if (config && config.sizes.length > 0) {
+                 const stdSize = config.sizes[0];
+                 // Nếu ảnh AI trả về nhỏ hơn size chuẩn -> Upscale lên size chuẩn
+                 if (img.width < stdSize.w) {
+                     targetW = stdSize.w;
+                     targetH = stdSize.h;
+                     shouldUpscale = true;
+                 }
+             }
+        }
+        
+        // Fallback: Nếu không phải Face/Sketch hoặc không khớp, dùng logic cũ
+        if (!shouldUpscale && originalSize) {
              const origRatio = originalSize.w / originalSize.h;
              if (Math.abs(currentRatio - origRatio) < 0.05) {
                  if (img.width < originalSize.w) {
@@ -712,10 +713,6 @@ export default function AIArtApp() {
                      targetH = originalSize.h;
                      shouldUpscale = true;
                  }
-             } else {
-                 targetW = img.width * 2;
-                 targetH = img.height * 2;
-                 shouldUpscale = true;
              }
         }
 
@@ -729,7 +726,8 @@ export default function AIArtApp() {
              ctx.imageSmoothingQuality = 'high';
              
              ctx.drawImage(img, 0, 0, targetW, targetH);
-             applySharpening(ctx, targetW, targetH, 0.7); 
+             // Chỉ sharpen nhẹ nếu cần
+             applySharpening(ctx, targetW, targetH, 0.5); 
 
              downloadUrl = canvas.toDataURL('image/png'); 
         }
