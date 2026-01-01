@@ -118,12 +118,23 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                 const y = (finalHeight / 2) - (img.height / 2) * scale;
                 ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
             } else if (taskType === 'sketch') {
+                // --- LOGIC SKETCH MỚI: FIT & FILL (Vẽ bù) ---
+                
+                // 1. Nền trắng (Canvas sạch)
                 ctx.fillStyle = '#FFFFFF'; 
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
+
+                // 2. Tính scale theo kiểu FIT (Lọt lòng)
+                // Đảm bảo toàn bộ nét vẽ gốc nằm trong khung, chấp nhận có viền trắng thừa ra.
                 const scale = Math.min(finalWidth / img.width, finalHeight / img.height);
-                const x = (finalWidth / 2) - (img.width / 2) * scale;
-                const y = (finalHeight / 2) - (img.height / 2) * scale;
+                
+                // 3. Căn giữa ảnh vào canvas
+                const x = (finalWidth - img.width * scale) / 2;
+                const y = (finalHeight - img.height * scale) / 2;
+                
+                // 4. Vẽ ảnh phác thảo vào giữa
                 ctx.drawImage(img, x, y, img.width * scale, img.height * scale);
+
             } else {
                 ctx.filter = 'blur(40px) brightness(0.8)';
                 const fillScale = Math.max(finalWidth / img.width, finalHeight / img.height);
@@ -246,7 +257,7 @@ const analyzeImageDelta = async (orgFile, resBase64) => {
 };
 
 
-// --- API 2: BATCH EXECUTE (THI HÀNH CÓ KIỂM SOÁT) ---
+// --- API 2: BATCH EXECUTE & SKETCH ---
 const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, extraContext = null) => {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
 
@@ -254,10 +265,7 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
   let systemContext = "";
   
   if (taskType === 'batch_execute' && extraContext) {
-      // --- LOGIC MỚI: HYBRID CONSTRAINT ---
-      // Gửi: [Target] + [Reference Result]
-      // Prompt: "Image 1 is the MASTER STRUCTURE. Image 2 is the DETAIL LOOKUP TABLE."
-      
+      // --- LOGIC BATCH MODE: HYBRID CONSTRAINT ---
       const targetCompressed = await compressImage(files[0].file, ratioId, taskType);
       const res1Base64 = extraContext.referenceResult.split(',')[1];
 
@@ -286,7 +294,7 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
       `;
 
   } else {
-      // NORMAL MODE
+      // NORMAL MODE / INITIAL EDIT
       const processedFiles = files.slice(0, 3);
       imageParts = await Promise.all(processedFiles.map(async (f) => {
           const compressed = await compressImage(f.file, ratioId, taskType);
@@ -302,7 +310,23 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
       if (taskType === 'edit') {
         systemContext = `${commonInstructions}\nROLE: Photo Manipulator.\nTASK: Execute user instruction: "${prompt}".\nRULES: Modify specific targets, keep background intact if possible.`;
       } else if (taskType === 'sketch') {
-        systemContext = `${commonInstructions}\nROLE: Render Engine.\nTASK: Turn sketch into real photo.`;
+        // --- LOGIC SKETCH: OUTPAINTING & RENDERING ---
+        systemContext = `
+          ${commonInstructions}
+          ROLE: Advanced Render Engine & Scene Extender.
+          
+          **INPUT ANALYSIS**:
+          You are provided with a sketch placed on a white canvas.
+          
+          **TASK 1: OUTPAINTING (CRITICAL)**:
+          - If the sketch does NOT cover the full canvas (i.e. there is white space around it), you MUST GENERATE new content to fill the empty space.
+          - Extend the scene naturally based on the sketch's context (e.g., extend walls, floor, sky, or landscape).
+          - **MANDATORY**: The final output MUST be a full-frame image. NO white borders allowed.
+          
+          **TASK 2: RENDERING**:
+          - Convert the entire scene (original sketch + extended parts) into a Hyper-Realistic Photograph.
+          - Use high-end lighting and textures.
+        `;
       } else if (taskType === 'face') {
         systemContext = `${commonInstructions}\nROLE: Face Swapper.\nTASK: Generate new body/scene from prompt, then swap face from input.`;
       }
@@ -491,7 +515,7 @@ const ResultSection = ({ resultImage, batchResults, isGenerating, activeTab, his
                             <div className="w-full h-full flex flex-col items-center justify-center">
                                <div className="w-6 h-6 border-2 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-2" />
                                <span className="text-[10px] text-white/40">
-                                   {idx === 0 ? 'Đang tạo mẫu...' : 'Đang xử lý...'}
+                                   {idx === 0 ? 'Đang tạo mẫu...' : 'Đang đồng bộ...'}
                                </span>
                             </div>
                          ) : (
@@ -920,6 +944,7 @@ export default function AIArtApp() {
             if (activeTab === 3) taskType = 'sketch';
             if (activeTab === 4) taskType = 'face';
             
+            // Edit (2) dùng logic cũ
             const ratioToUse = (activeTab === 4 || activeTab === 3) ? selectedRatioId : null;
             url = await generateMultimodalImage(prompt, inputFiles, taskType, ratioToUse);
         }
@@ -1079,8 +1104,10 @@ export default function AIArtApp() {
              <div className="bg-purple-500/10 border border-purple-500/20 px-3 py-2 rounded-lg text-xs text-purple-200/80 shrink-0">
                <b>Biến phác thảo thành ảnh thật</b>.
              </div>
+
+             {/* CẬP NHẬT: Thêm phần chọn tỉ lệ cho Sketch */}
              <div className="shrink-0">
-                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label>
+                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ khung hình (Output)</label>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.values(RATIO_CONFIG).map((ratio) => (
                     <button
@@ -1097,6 +1124,7 @@ export default function AIArtApp() {
                   ))}
                 </div>
              </div>
+
              <div className="flex-1 min-h-0">
                <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh phác thảo" />
              </div>
@@ -1106,10 +1134,12 @@ export default function AIArtApp() {
         return (
           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col">
              <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg text-xs text-emerald-200/80 shrink-0">
-               <b>Face Generation</b>.
+               <b>Face Generation</b>. Upload ảnh mẫu để AI tham khảo.
              </div>
+             
+             {/* Thêm phần chọn tỉ lệ cho Face ID */}
              <div className="shrink-0">
-                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label>
+                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ khung hình (Output)</label>
                 <div className="grid grid-cols-2 gap-2">
                   {Object.values(RATIO_CONFIG).map((ratio) => (
                     <button
@@ -1126,6 +1156,7 @@ export default function AIArtApp() {
                   ))}
                 </div>
              </div>
+
              <div className="flex-1 min-h-0">
                <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh khuôn mặt" />
              </div>
