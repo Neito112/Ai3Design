@@ -378,8 +378,6 @@ const HelpModal = ({ tabId, onClose }) => {
 };
 
 // --- COMPONENTS ---
-// (Lightbox, ResultSection, HistoryTray, ImageUploader giữ nguyên logic cũ, chỉ thay đổi ResultSection để nhận onShowHelp nếu cần, nhưng Help nằm ở App level)
-
 const Lightbox = ({ images, initialIndex, onClose, onDownload }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   useEffect(() => { setCurrentIndex(initialIndex); }, [initialIndex]);
@@ -444,20 +442,116 @@ const HistoryTray = ({ history, onRemoveHistory, onViewFull, onViewBatch, isBatc
     );
 }
 
+// --- UPDATED IMAGE UPLOADER ---
 const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh lên" }) => {
   const fileInputRef = useRef(null);
-  const MAX_SIZE_MB = 20; const totalSize = files.reduce((acc, curr) => acc + curr.file.size, 0); const currentSizeMB = (totalSize / (1024 * 1024)).toFixed(2); const isOverLimit = parseFloat(currentSizeMB) > MAX_SIZE_MB;
-  const handleFileChange = async (e) => { const selectedFiles = Array.from(e.target.files); await processFiles(selectedFiles); };
-  const processFiles = async (selectedFiles) => { const processedWithDims = await Promise.all(selectedFiles.map(async (file) => { const dims = await new Promise(resolve => { const img = new Image(); img.onload = () => resolve({ w: img.width, h: img.height }); img.src = URL.createObjectURL(file); }); return { file, preview: URL.createObjectURL(file), dims }; })); if (multiple) setFiles(prev => [...prev, ...processedWithDims]); else setFiles([processedWithDims[0]]); };
-  const handleDragOver = (e) => { e.preventDefault(); e.stopPropagation(); };
-  const handleDrop = async (e) => { e.preventDefault(); e.stopPropagation(); const droppedFiles = Array.from(e.dataTransfer.files); if (droppedFiles.length > 0) await processFiles(droppedFiles); };
-  const removeFile = (index) => setFiles(prev => prev.filter((_, i) => i !== index));
+  const MAX_SIZE_MB = 20; 
+
+  const totalSize = files.reduce((acc, curr) => acc + curr.file.size, 0);
+  const currentSizeMB = (totalSize / (1024 * 1024)).toFixed(2);
+  const isOverLimit = parseFloat(currentSizeMB) > MAX_SIZE_MB;
+
+  const handleFileChange = async (e) => {
+    const selectedFiles = Array.from(e.target.files);
+    await processFiles(selectedFiles);
+    e.target.value = null; // Allow re-upload
+  };
+
+  const processFiles = async (selectedFiles) => {
+    const processedWithDims = await Promise.all(selectedFiles.map(async (file) => {
+        const dims = await new Promise(resolve => {
+            const img = new Image();
+            img.onload = () => resolve({ w: img.width, h: img.height });
+            img.src = URL.createObjectURL(file);
+        });
+        return {
+            file,
+            preview: URL.createObjectURL(file),
+            dims 
+        };
+    }));
+
+    if (multiple) setFiles(prev => [...prev, ...processedWithDims]);
+    else setFiles([processedWithDims[0]]);
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation(); 
+  };
+
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    e.stopPropagation(); 
+    const droppedFiles = Array.from(e.dataTransfer.files);
+    if (droppedFiles.length > 0) {
+      await processFiles(droppedFiles);
+    }
+  };
+
+  const removeFile = (index) => {
+    setFiles(prev => prev.filter((_, i) => i !== index));
+  };
 
   return (
     <div className="w-full h-full flex flex-col">
-      <div className={`relative w-full flex-1 transition-all rounded-xl overflow-hidden group/container flex flex-col ${files.length === 0 ? 'border-2 border-dashed border-white/20 hover:border-blue-400/50 bg-black/20 hover:bg-black/30 cursor-pointer' : 'border border-white/10 bg-black/20'}`} onClick={() => files.length === 0 && fileInputRef.current?.click()} onDragOver={handleDragOver} onDrop={handleDrop}>
+      <div 
+        className={`relative w-full flex-1 transition-all rounded-xl overflow-hidden group/container flex flex-col
+          ${files.length === 0 
+            ? 'border-2 border-dashed border-white/20 hover:border-blue-400/50 bg-black/20 hover:bg-black/30 cursor-pointer' 
+            : 'border border-white/10 bg-black/20'}`}
+        onClick={() => files.length === 0 && fileInputRef.current?.click()}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+      >
         <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileChange} multiple={multiple} accept="image/*" />
-        {files.length === 0 ? (<div className="flex flex-col items-center justify-center text-center pointer-events-none h-full p-4"><UploadCloud className="text-blue-400 mb-2 opacity-80" size={32} /><p className="text-white/70 text-sm font-medium">{label}</p></div>) : (<><div className="flex-1 overflow-y-auto custom-scrollbar p-3 min-h-0"><div className="grid grid-cols-3 gap-2 w-full">{files.map((item, idx) => (<div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-white/20 group/img bg-black/40"><img src={item.preview} alt="preview" className="w-full h-full object-cover" /><div className="absolute top-1 left-1 bg-blue-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm z-10 pointer-events-none border border-white/10">#{idx + 1}</div><button onClick={(e) => { e.stopPropagation(); removeFile(idx); }} className="absolute top-1 right-1 p-1 bg-red-500/80 rounded-full text-white opacity-0 group-hover/img:opacity-100 transition-opacity z-20 hover:bg-red-600"><X size={10} /></button></div>))}</div></div><div className="bg-black/40 p-2 border-t border-white/5 shrink-0 z-10 backdrop-blur-md"><div className="flex justify-between text-[10px] mb-1"><span className="text-white/60 font-medium">Dung lượng</span><span className={isOverLimit ? "text-red-400 font-bold" : "text-white/60"}>{currentSizeMB} / {MAX_SIZE_MB} MB</span></div><div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-1"><div className={`h-full transition-all duration-300 ${isOverLimit ? 'bg-red-500' : 'bg-blue-500'}`} style={{ width: `${Math.min((parseFloat(currentSizeMB) / MAX_SIZE_MB) * 100, 100)}%` }} /></div></div></>)}
+        
+        {files.length === 0 ? (
+          <div className="flex flex-col items-center justify-center text-center pointer-events-none h-full p-4">
+            <UploadCloud className="text-blue-400 mb-2 opacity-80" size={32} />
+            <p className="text-white/70 text-sm font-medium">{label}</p>
+            <p className="text-white/30 text-xs mt-1">Kéo thả hoặc dán ảnh (Ctrl+V)</p>
+          </div>
+        ) : (
+          <>
+            <div className="flex-1 overflow-y-auto custom-scrollbar p-3 min-h-0">
+               <div className="grid grid-cols-3 gap-2 w-full">
+                  {files.map((item, idx) => (
+                    <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-white/20 group/img bg-black/40">
+                      <img src={item.preview} alt="preview" className="w-full h-full object-cover" />
+                      <div className="absolute top-1 left-1 bg-blue-600/90 text-white text-[10px] font-bold px-1.5 py-0.5 rounded shadow-sm z-10 pointer-events-none border border-white/10">#{idx + 1}</div>
+                      <button onClick={(e) => { e.stopPropagation(); removeFile(idx); }} className="absolute top-1 right-1 p-1 bg-red-500/80 rounded-full text-white opacity-0 group-hover/img:opacity-100 transition-opacity z-20 hover:bg-red-600"><X size={12} /></button>
+                    </div>
+                  ))}
+                  
+                  {/* RESTORED ADD BUTTON */}
+                  <div 
+                    className="aspect-square rounded-lg border border-dashed border-white/20 flex flex-col items-center justify-center text-white/30 hover:text-white/80 hover:border-white/40 hover:bg-white/5 transition-all cursor-pointer"
+                    onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
+                    title="Thêm ảnh khác"
+                  >
+                    <Plus size={24} />
+                    <span className="text-[10px] mt-1 font-medium">Thêm</span>
+                  </div>
+               </div>
+            </div>
+
+            <div className="bg-black/40 p-2 border-t border-white/5 shrink-0 z-10 backdrop-blur-md">
+              <div className="flex justify-between text-[10px] mb-1">
+                <span className="text-white/60 font-medium">Dung lượng</span>
+                <span className={isOverLimit ? "text-red-400 font-bold" : "text-white/60"}>
+                  {currentSizeMB} / {MAX_SIZE_MB} MB
+                </span>
+              </div>
+              <div className="w-full h-1.5 bg-white/10 rounded-full overflow-hidden mb-1">
+                <div 
+                  className={`h-full transition-all duration-300 ${isOverLimit ? 'bg-red-500' : 'bg-blue-500'}`}
+                  style={{ width: `${Math.min((parseFloat(currentSizeMB) / MAX_SIZE_MB) * 100, 100)}%` }}
+                />
+              </div>
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
@@ -477,7 +571,7 @@ export default function AIArtApp() {
   const [inputFiles, setInputFiles] = useState([]);
   const [histories, setHistories] = useState({ 1: [], 2: [], 3: [], 4: [], 5: [] });
   const [lightboxData, setLightboxData] = useState({ isOpen: false, images: [], index: 0 });
-  const [showHelp, setShowHelp] = useState(false); // State cho Help Modal
+  const [showHelp, setShowHelp] = useState(false);
 
   const originalSize = inputFiles.length > 0 && inputFiles[0].dims ? inputFiles[0].dims : null;
 
@@ -622,58 +716,24 @@ export default function AIArtApp() {
     }
     switch(activeTab) {
       case 1: return (<div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"><div className="grid grid-cols-2 gap-4"><div className="col-span-2"><label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ khung hình</label><div className="grid grid-cols-2 gap-2">{Object.values(RATIO_CONFIG).map((ratio) => (<button key={ratio.id} onClick={() => handleRatioChange(ratio.id)} className={`py-3 px-3 rounded-lg text-xs border transition-all flex items-center justify-between ${selectedRatioId === ratio.id ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}><span className="font-medium">{ratio.label}</span>{selectedRatioId === ratio.id && <div className="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}</button>))}</div></div></div></div>);
-      case 2: return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-blue-500/10 border border-blue-500/20 px-3 py-2 rounded-lg text-xs text-blue-200/80 shrink-0">Chế độ: <b>Multimodal Edit</b>.</div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh gốc" /></div></div>);
+      case 2: return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-blue-500/10 border border-blue-500/20 px-3 py-2 rounded-lg text-xs text-blue-200/80 shrink-0">Chế độ: <b>Multimodal Edit</b>.</div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh gốc (Nhiều ảnh)" /></div></div>);
       case 3: return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-purple-500/10 border border-purple-500/20 px-3 py-2 rounded-lg text-xs text-purple-200/80 shrink-0"><b>Biến phác thảo thành ảnh thật</b>.</div><div className="shrink-0"><label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label><div className="grid grid-cols-2 gap-2">{Object.values(RATIO_CONFIG).map((ratio) => (<button key={ratio.id} onClick={() => handleRatioChange(ratio.id)} className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between ${selectedRatioId === ratio.id ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}><span className="font-medium text-[10px]">{ratio.label}</span>{selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}</button>))}</div></div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh phác thảo" /></div></div>);
       case 4: return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg text-xs text-emerald-200/80 shrink-0"><b>Face Generation</b>.</div><div className="shrink-0"><label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label><div className="grid grid-cols-2 gap-2">{Object.values(RATIO_CONFIG).map((ratio) => (<button key={ratio.id} onClick={() => handleRatioChange(ratio.id)} className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between ${selectedRatioId === ratio.id ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}><span className="font-medium text-[10px]">{ratio.label}</span>{selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}</button>))}</div></div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh khuôn mặt" /></div></div>);
       default: return null;
     }
   };
 
-  const TABS = [
-    { id: 1, label: 'Tạo Ảnh', icon: Wand2 },
-    { id: 2, label: 'Chỉnh Sửa', icon: Settings2 },
-    { id: 3, label: 'Sketch', icon: PenTool },
-    { id: 4, label: 'Face ID', icon: UserSquare2 },
-    { id: 5, label: 'Batch Edit (thử nghiệm)', icon: Layers } // Cập nhật tên tab
-  ];
+  const TABS = [{ id: 1, label: 'Tạo Ảnh', icon: Wand2 }, { id: 2, label: 'Chỉnh Sửa', icon: Settings2 }, { id: 3, label: 'Sketch', icon: PenTool }, { id: 4, label: 'Face ID', icon: UserSquare2 }, { id: 5, label: 'Batch Edit (thử nghiệm)', icon: Layers }];
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#0f172a] text-white overflow-hidden relative font-sans selection:bg-blue-500/30">
       <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-purple-600/20 rounded-full blur-[150px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-blue-600/20 rounded-full blur-[150px] pointer-events-none" />
-
-      {/* TOP NAVBAR */}
       <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/5 backdrop-blur-md z-20 shrink-0">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
-            <Sparkles className="text-white" size={18} />
-          </div>
-          <h1 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60 tracking-tight">
-            AIGen
-          </h1>
-        </div>
-
-        <nav className="flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-white/5">
-          {TABS.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => switchTab(item.id)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 text-sm font-medium
-                ${activeTab === item.id 
-                  ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10' 
-                  : 'text-white/40 hover:text-white hover:bg-white/5'}`}
-            >
-              <item.icon size={16} />
-              <span className="hidden sm:inline">{item.label}</span>
-            </button>
-          ))}
-        </nav>
+        <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20"><Sparkles className="text-white" size={18} /></div><h1 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60 tracking-tight">AIGen</h1></div>
+        <nav className="flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-white/5">{TABS.map((item) => (<button key={item.id} onClick={() => switchTab(item.id)} className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 text-sm font-medium ${activeTab === item.id ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10' : 'text-white/40 hover:text-white hover:bg-white/5'}`}><item.icon size={16} /><span className="hidden sm:inline">{item.label}</span></button>))}</nav>
       </div>
-
-      {/* MAIN CONTENT */}
       <div className="flex-1 flex overflow-hidden z-10">
-        
-        {/* LEFT DASHBOARD */}
         <div className="w-full md:w-[360px] border-r border-white/5 bg-black/10 backdrop-blur-sm flex flex-col h-full">
           <div className="flex-1 flex flex-col p-5 gap-5 min-h-0">
             <div className="shrink-0 flex justify-between items-start">
@@ -681,19 +741,17 @@ export default function AIArtApp() {
                    <h2 className="text-xl font-semibold text-white/90">{TABS.find(t => t.id === activeTab)?.label}</h2>
                    <p className="text-xs text-white/40 mt-1">{activeTab === 5 ? 'Sửa 1 ảnh, áp dụng cho tất cả.' : 'AI Creative Suite.'}</p>
                 </div>
-                {/* NÚT TRỢ GIÚP */}
                 <button onClick={() => setShowHelp(true)} className="p-2 text-white/40 hover:text-blue-400 transition-colors" title="Hướng dẫn sử dụng"><HelpCircle size={20} /></button>
             </div>
             <div className="shrink-0 space-y-2 mt-4"><label className="text-[10px] font-bold text-white/40 uppercase flex justify-between">Prompt {activeTab === 5 && "(Áp dụng cho ảnh đầu tiên)"}<span className="text-white/20">{prompt.length}/500</span></label><div className="relative group"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={activeTab === 2 || activeTab === 5 ? "VD: Thêm hiệu ứng màu film, làm nét ảnh..." : "VD: Một chú mèo máy futuristic..."} className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-3 text-white text-sm focus:border-blue-500/50 focus:bg-black/30 outline-none resize-none transition-all placeholder:text-white/20" /><div className="absolute bottom-2 right-2"><Wand2 size={14} className="text-white/20" /></div></div></div>
             <div className="flex-1 min-h-0">{renderControls()}</div>
           </div>
-          <div className="p-5 border-t border-white/5 bg-black/20 shrink-0"><button onClick={handleGenerate} disabled={isGenerating || (!prompt && activeTab === 1)} className={`w-full py-3 rounded-xl font-bold text-base shadow-xl flex items-center justify-center gap-2 transition-all ${isGenerating ? 'bg-white/5 text-white/50 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 hover:shadow-blue-500/20 text-white transform active:scale-[0.98]'}`}>{isGenerating ? (<span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> {activeTab === 5 ? 'Đang Batch...' : 'Đang tạo...'}</span>) : (<><Sparkles size={18} fill="currentColor" /> {activeTab === 5 ? 'Sửa hàng loạt' : 'Tạo ngay'}</>)}</button></div>
+          <div className="p-5 border-t border-white/5 bg-black/20 shrink-0"><button onClick={handleGenerate} disabled={isGenerating || (!prompt && activeTab !== 2 && activeTab !== 3 && activeTab !== 4 && activeTab !== 5) || (activeTab !== 1 && inputFiles.length === 0)} className={`w-full py-3 rounded-xl font-bold text-base shadow-xl flex items-center justify-center gap-2 transition-all ${isGenerating ? 'bg-white/5 text-white/50 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 hover:shadow-blue-500/20 text-white transform active:scale-[0.98]'}`}>{isGenerating ? (<span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> {activeTab === 5 ? 'Đang Batch...' : 'Đang tạo...'}</span>) : (<><Sparkles size={18} fill="currentColor" /> {activeTab === 5 ? 'Sửa hàng loạt' : 'Tạo ngay'}</>)}</button></div>
         </div>
         <div className="flex-1 bg-black/20 p-6 overflow-y-auto custom-scrollbar flex flex-col"><div className="flex-1 max-w-5xl mx-auto w-full h-full"><ResultSection activeTab={activeTab} resultImage={resultImage} batchResults={batchResults} isGenerating={isGenerating} history={histories[activeTab]} onViewFull={openLightbox} onDownload={downloadImage} error={error} onRemoveHistory={(index) => handleRemoveHistory(activeTab, index)} onViewBatchHistory={(folder) => openLightbox(folder.items, 0)} onRegenerateSingle={handleRegenerateSingle} /></div></div>
       </div>
       {lightboxData.isOpen && (<Lightbox images={lightboxData.images} initialIndex={lightboxData.index} onClose={() => setLightboxData({ ...lightboxData, isOpen: false })} onDownload={downloadImage} />)}
       
-      {/* HELP MODAL */}
       {showHelp && <HelpModal tabId={activeTab} onClose={() => setShowHelp(false)} />}
 
       <style>{`.custom-scrollbar::-webkit-scrollbar { width: 5px; } .custom-scrollbar::-webkit-scrollbar-track { background: transparent; } .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; } .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); } .animate-spin-slow { animation: spin 3s linear infinite; } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
