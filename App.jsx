@@ -909,8 +909,8 @@ export default function AIArtApp() {
             <Sparkles className="text-white" size={18} />
           </div>
           <h1 className="text-lg font-bold tracking-tight">
-            <span className="text-white/60 text-sm font-light">Create by </span>
-            <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 font-extrabold text-xl font-handwriting">Neito</span>
+            <span className="text-white/60 text-xs font-light">Create by </span>
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 font-extrabold text-5xl font-handwriting">Neito</span>
           </h1>
         </div>
 
