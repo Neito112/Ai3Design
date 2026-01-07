@@ -16,46 +16,25 @@ import {
   AlertCircle,
   ScanLine,
   Zap,
-  Layers,      // Icon cho Batch
-  ChevronLeft, // Icon điều hướng
+  Layers,       // Icon cho Batch
+  ChevronLeft,  // Icon điều hướng
   ChevronRight,
-  FolderOpen,  // Icon Folder lịch sử
-  ArrowRight,
-  Copy,
+  Loader2,      // Icon loading
+  Trash,        // Icon xóa
+  FileJson,     // Icon backup
   RotateCw,     // Icon Tạo lại
-  HelpCircle   // Icon Trợ giúp
+  HelpCircle    // Icon Trợ giúp
 } from 'lucide-react';
 
 // --- GLOBAL API KEY CONFIGURATION ---
-// Trong môi trường Canvas, API Key được cung cấp tự động tại runtime.
 const apiKey = ""; 
 
 // --- CONFIGURATION ---
 const RATIO_CONFIG = {
-  'square': { 
-    id: 'square', 
-    label: '1:1 (Vuông)', 
-    apiValue: '1:1',
-    sizes: [{ w: 1024, h: 1024, label: 'Standard' }] 
-  },
-  'landscape': { 
-    id: 'landscape', 
-    label: '16:9 (Ngang)', 
-    apiValue: '16:9',
-    sizes: [{ w: 1280, h: 720, label: 'Standard' }] 
-  },
-  'portrait': { 
-    id: 'portrait', 
-    label: '9:16 (Dọc)', 
-    apiValue: '9:16',
-    sizes: [{ w: 720, h: 1280, label: 'Standard' }] 
-  },
-  'standard': { 
-    id: 'standard', 
-    label: '4:3 (Chuẩn)', 
-    apiValue: '4:3',
-    sizes: [{ w: 1024, h: 768, label: 'Standard' }] 
-  },
+  'square': { id: 'square', label: '1:1 (Vuông)', apiValue: '1:1', sizes: [{ w: 1024, h: 1024 }] },
+  'landscape': { id: 'landscape', label: '16:9 (Ngang)', apiValue: '16:9', sizes: [{ w: 1280, h: 720 }] },
+  'portrait': { id: 'portrait', label: '9:16 (Dọc)', apiValue: '9:16', sizes: [{ w: 720, h: 1280 }] },
+  'standard': { id: 'standard', label: '4:3 (Chuẩn)', apiValue: '4:3', sizes: [{ w: 1024, h: 768 }] },
 };
 
 // --- HELP CONTENT ---
@@ -172,7 +151,14 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         let finalWidth = sourceWidth;
         let finalHeight = sourceHeight;
 
-        if (targetRatioId && RATIO_CONFIG[targetRatioId]) {
+        if (taskType === 'batch') {
+            // Batch Mode: Giữ nguyên tỉ lệ gốc, chỉ giới hạn kích thước tối đa
+            if (sourceWidth > MAX_DIMENSION || sourceHeight > MAX_DIMENSION) {
+                const scale = Math.min(MAX_DIMENSION / sourceWidth, MAX_DIMENSION / sourceHeight);
+                finalWidth = sourceWidth * scale;
+                finalHeight = sourceHeight * scale;
+            }
+        } else if (targetRatioId && RATIO_CONFIG[targetRatioId]) {
            const [rW, rH] = RATIO_CONFIG[targetRatioId].apiValue.split(':').map(Number);
            const targetRatio = rW / rH;
            
@@ -184,16 +170,11 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                finalWidth = Math.round(MAX_DIMENSION * targetRatio);
            }
         } else {
-            if (sourceWidth > sourceHeight) {
-                if (sourceWidth > MAX_DIMENSION) {
-                    finalWidth = MAX_DIMENSION;
-                    finalHeight = Math.round(sourceHeight * (MAX_DIMENSION / sourceWidth));
-                }
-            } else {
-                if (sourceHeight > MAX_DIMENSION) {
-                    finalHeight = MAX_DIMENSION;
-                    finalWidth = Math.round(sourceWidth * (MAX_DIMENSION / sourceHeight));
-                }
+            // Fallback resize logic
+            if (sourceWidth > MAX_DIMENSION || sourceHeight > MAX_DIMENSION) {
+                const scale = Math.min(MAX_DIMENSION / sourceWidth, MAX_DIMENSION / sourceHeight);
+                finalWidth = sourceWidth * scale;
+                finalHeight = sourceHeight * scale;
             }
         }
 
@@ -205,8 +186,11 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        if (targetRatioId) {
+        if (taskType === 'batch') {
+             ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
+        } else if (targetRatioId) {
             if (taskType === 'face' || taskType === 'sketch' || taskType === 'creation') {
+                // Outpaint Logic
                 ctx.fillStyle = '#FFFFFF'; 
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
                 let scale = Math.min(finalWidth / img.width, finalHeight / img.height);
@@ -217,6 +201,7 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                 const y = (finalHeight - drawH) / 2;
                 ctx.drawImage(img, x, y, drawW, drawH);
             } else {
+                // Edit Logic
                 ctx.filter = 'blur(40px) brightness(0.8)';
                 const fillScale = Math.max(finalWidth / img.width, finalHeight / img.height);
                 ctx.drawImage(img, (finalWidth - img.width * fillScale)/2, (finalHeight - img.height * fillScale)/2, img.width * fillScale, img.height * fillScale);
@@ -581,10 +566,22 @@ export default function AIArtApp() {
       const items = e.clipboardData?.items;
       if (!items) return;
       const pastedFiles = [];
-      for (let i = 0; i < items.length; i++) { if (items[i].type.indexOf('image') !== -1) pastedFiles.push(items[i].getAsFile()); }
+      for (let i = 0; i < items.length; i++) {
+        if (items[i].type.indexOf('image') !== -1) {
+          const file = items[i].getAsFile();
+          if (file) pastedFiles.push(file);
+        }
+      }
       if (pastedFiles.length > 0) {
         e.preventDefault();
-        const processed = await Promise.all(pastedFiles.map(async (file) => { const dims = await new Promise(resolve => { const img = new Image(); img.onload = () => resolve({ w: img.width, h: img.height }); img.src = URL.createObjectURL(file); }); return { file, preview: URL.createObjectURL(file), dims }; }));
+        const processed = await Promise.all(pastedFiles.map(async (file) => {
+             const dims = await new Promise(resolve => {
+                const img = new Image();
+                img.onload = () => resolve({ w: img.width, h: img.height });
+                img.src = URL.createObjectURL(file);
+            });
+            return { file, preview: URL.createObjectURL(file), dims };
+        }));
         setInputFiles(prev => [...prev, ...processed]);
       }
     };
@@ -593,20 +590,55 @@ export default function AIArtApp() {
   }, [activeTab]);
 
   useEffect(() => {
-    const handleKeyDown = (e) => { if (e.key === 'Escape') { setLightboxData({ ...lightboxData, isOpen: false }); setShowHelp(false); } };
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape') {
+        setLightboxData({ ...lightboxData, isOpen: false });
+        setShowHelp(false);
+      }
+    };
+
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [lightboxData]);
 
-  const handleRatioChange = (ratioId) => setSelectedRatioId(ratioId);
-  const handleRemoveHistory = (tabId, index) => setHistories(prev => ({ ...prev, [tabId]: prev[tabId].filter((_, i) => i !== index) }));
-  const switchTab = (tabId) => { setActiveTab(tabId); setPrompt(""); setResultImage(null); setBatchResults([]); setError(null); setInputFiles([]); setIsGenerating(false); };
+  const handleRatioChange = (ratioId) => {
+    setSelectedRatioId(ratioId);
+  };
+
+  const handleRemoveHistory = (tabId, index) => {
+    setHistories(prev => ({
+      ...prev,
+      [tabId]: prev[tabId].filter((_, i) => i !== index)
+    }));
+  };
+
+  const switchTab = (tabId) => {
+    setActiveTab(tabId);
+    setPrompt("");
+    setResultImage(null);
+    setBatchResults([]);
+    setError(null);
+    setInputFiles([]);
+    setIsGenerating(false);
+  };
 
   const handleGenerate = async () => {
     setError(null);
-    if (!prompt && activeTab !== 2 && activeTab !== 3 && activeTab !== 4 && activeTab !== 5) { setError("Vui lòng nhập mô tả"); return; }
-    if ((activeTab !== 1) && inputFiles.length === 0) { setError("Vui lòng tải ảnh"); return; }
-    setIsGenerating(true); setResultImage(null); setBatchResults([]); setBatchReference(null); setBatchInstructions(null); 
+    if (!prompt && activeTab !== 2 && activeTab !== 3 && activeTab !== 4 && activeTab !== 5) {
+      setError("Vui lòng nhập mô tả (prompt)");
+      return;
+    }
+    if ((activeTab !== 1) && inputFiles.length === 0) {
+      setError("Vui lòng tải lên ảnh đầu vào cho tính năng này!");
+      return;
+    }
+
+    setIsGenerating(true);
+    setResultImage(null);
+    setBatchResults([]);
+    setBatchReference(null); 
+    setBatchInstructions(null); 
+
     try {
       if (activeTab === 5) {
           const initBatch = inputFiles.map((_, i) => ({ status: 'pending', url: null, id: i }));
@@ -614,6 +646,7 @@ export default function AIArtApp() {
           const finalUrls = new Array(inputFiles.length).fill(null);
           let currentInstructions = null;
           let currentRefData = null;
+
           for (let i = 0; i < inputFiles.length; i++) {
               try {
                   let url;
@@ -629,7 +662,9 @@ export default function AIArtApp() {
                   }
                   finalUrls[i] = url;
                   setBatchResults(prev => { const newState = [...prev]; newState[i] = { status: 'done', url: url, id: i }; return newState; });
-              } catch (batchErr) { setBatchResults(prev => { const newState = [...prev]; newState[i] = { status: 'error', url: null, id: i }; return newState; }); }
+              } catch (batchErr) {
+                  setBatchResults(prev => { const newState = [...prev]; newState[i] = { status: 'error', url: null, id: i }; return newState; });
+              }
           }
           if (finalUrls[0]) {
               const batchHistoryItem = { type: 'batch', timestamp: Date.now(), cover: finalUrls[0], items: finalUrls.filter(u => u !== null) };
@@ -650,7 +685,12 @@ export default function AIArtApp() {
         setResultImage(url);
         setHistories(prev => ({ ...prev, [activeTab]: [url, ...prev[activeTab]].slice(0, 5) }));
       }
-    } catch (err) { console.error(err); setError(err.message || "Có lỗi xảy ra"); } finally { setIsGenerating(false); }
+    } catch (err) {
+      console.error(err);
+      setError(err.message || "Có lỗi xảy ra khi kết nối tới AI API.");
+    } finally {
+      setIsGenerating(false);
+    }
   };
 
   const handleRegenerateSingle = async (index) => {
@@ -682,79 +722,318 @@ export default function AIArtApp() {
               }
               return prev;
           });
-      } catch (err) { setBatchResults(prev => { const newState = [...prev]; newState[index] = { ...newState[index], status: 'error' }; return newState; }); }
+      } catch (err) {
+           setBatchResults(prev => { const newState = [...prev]; newState[index] = { ...newState[index], status: 'error' }; return newState; });
+      }
   };
 
   const downloadImage = (url) => {
-    const img = new Image(); img.crossOrigin = "anonymous"; img.src = url;
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = url;
     img.onload = () => {
         let downloadUrl = url;
         const MAX_UPSCALE_SIZE = 4096; 
-        let targetW = img.width; let targetH = img.height; let shouldUpscale = false;
+        let targetW = img.width;
+        let targetH = img.height;
+        let shouldUpscale = false;
+
         if (targetW < MAX_UPSCALE_SIZE && targetH < MAX_UPSCALE_SIZE) {
-             const scaleW = MAX_UPSCALE_SIZE / targetW; const scaleH = MAX_UPSCALE_SIZE / targetH; const scale = Math.min(scaleW, scaleH); 
-             if (scale > 1) { targetW = Math.round(targetW * scale); targetH = Math.round(targetH * scale); shouldUpscale = true; }
+             const scaleW = MAX_UPSCALE_SIZE / targetW;
+             const scaleH = MAX_UPSCALE_SIZE / targetH;
+             const scale = Math.min(scaleW, scaleH);
+             if (scale > 1) {
+                 targetW = Math.round(targetW * scale);
+                 targetH = Math.round(targetH * scale);
+                 shouldUpscale = true;
+             }
         }
+
         if (shouldUpscale) {
-             const canvas = document.createElement('canvas'); canvas.width = targetW; canvas.height = targetH;
-             const ctx = canvas.getContext('2d'); ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = 'high';
-             ctx.drawImage(img, 0, 0, targetW, targetH); applySharpening(ctx, targetW, targetH, 0.5); 
+             const canvas = document.createElement('canvas');
+             canvas.width = targetW;
+             canvas.height = targetH;
+             const ctx = canvas.getContext('2d');
+             ctx.imageSmoothingEnabled = true;
+             ctx.imageSmoothingQuality = 'high';
+             ctx.drawImage(img, 0, 0, targetW, targetH);
+             applySharpening(ctx, targetW, targetH, 0.5); 
              downloadUrl = canvas.toDataURL('image/png'); 
         }
-        const link = document.createElement('a'); link.href = downloadUrl; link.download = `AIGen_MaxRes_${Date.now()}.png`; document.body.appendChild(link); link.click(); document.body.removeChild(link);
+        
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `AIGen_MaxRes_${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
     };
   };
 
   const openLightbox = (imagesSource, startIndex = 0) => {
-      let images = []; if (Array.isArray(imagesSource)) { images = imagesSource; } else { images = [imagesSource]; }
+      let images = [];
+      if (Array.isArray(imagesSource)) { images = imagesSource; } else { images = [imagesSource]; }
       setLightboxData({ isOpen: true, images, index: startIndex });
   };
 
   const renderControls = () => {
     if (activeTab === 5) {
-        return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-orange-500/10 border border-orange-500/20 px-3 py-2 rounded-lg text-xs text-orange-200/80 shrink-0"><b>Sửa Hàng Loạt (Hybrid Anchor)</b>: Sử dụng đồng thời Text và Visual Reference để đảm bảo cả Bố cục và Chi tiết.</div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải bộ ảnh (Chọn nhiều)" /></div></div>);
+        return (
+          <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col">
+             <div className="bg-orange-500/10 border border-orange-500/20 px-3 py-2 rounded-lg text-xs text-orange-200/80 shrink-0">
+               <b>Sửa Hàng Loạt (Hybrid Anchor)</b>: Sử dụng đồng thời Text và Visual Reference để đảm bảo cả Bố cục và Chi tiết.
+             </div>
+             <div className="flex-1 min-h-0">
+               <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải bộ ảnh (Chọn nhiều)" />
+             </div>
+          </div>
+        );
     }
+
     switch(activeTab) {
-      case 1: return (<div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300"><div className="grid grid-cols-2 gap-4"><div className="col-span-2"><label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ khung hình</label><div className="grid grid-cols-2 gap-2">{Object.values(RATIO_CONFIG).map((ratio) => (<button key={ratio.id} onClick={() => handleRatioChange(ratio.id)} className={`py-3 px-3 rounded-lg text-xs border transition-all flex items-center justify-between ${selectedRatioId === ratio.id ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}><span className="font-medium">{ratio.label}</span>{selectedRatioId === ratio.id && <div className="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}</button>))}</div></div></div></div>);
-      case 2: return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-blue-500/10 border border-blue-500/20 px-3 py-2 rounded-lg text-xs text-blue-200/80 shrink-0">Chế độ: <b>Multimodal Edit</b>.</div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh gốc (Nhiều ảnh)" /></div></div>);
-      case 3: return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-purple-500/10 border border-purple-500/20 px-3 py-2 rounded-lg text-xs text-purple-200/80 shrink-0"><b>Biến phác thảo thành ảnh thật</b>.</div><div className="shrink-0"><label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label><div className="grid grid-cols-2 gap-2">{Object.values(RATIO_CONFIG).map((ratio) => (<button key={ratio.id} onClick={() => handleRatioChange(ratio.id)} className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between ${selectedRatioId === ratio.id ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}><span className="font-medium text-[10px]">{ratio.label}</span>{selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}</button>))}</div></div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh phác thảo" /></div></div>);
-      case 4: return (<div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col"><div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg text-xs text-emerald-200/80 shrink-0"><b>Face Generation</b>.</div><div className="shrink-0"><label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label><div className="grid grid-cols-2 gap-2">{Object.values(RATIO_CONFIG).map((ratio) => (<button key={ratio.id} onClick={() => handleRatioChange(ratio.id)} className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between ${selectedRatioId === ratio.id ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}><span className="font-medium text-[10px]">{ratio.label}</span>{selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}</button>))}</div></div><div className="flex-1 min-h-0"><ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh khuôn mặt" /></div></div>);
+      case 1: 
+        return (
+          <div className="space-y-4 animate-in fade-in slide-in-from-bottom-2 duration-300">
+             <div className="grid grid-cols-2 gap-4">
+               <div className="col-span-2">
+                  <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ khung hình</label>
+                  <div className="grid grid-cols-2 gap-2">
+                    {Object.values(RATIO_CONFIG).map((ratio) => (
+                      <button
+                        key={ratio.id}
+                        onClick={() => handleRatioChange(ratio.id)}
+                        className={`py-3 px-3 rounded-lg text-xs border transition-all flex items-center justify-between
+                          ${selectedRatioId === ratio.id 
+                            ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' 
+                            : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}
+                      >
+                        <span className="font-medium">{ratio.label}</span>
+                        {selectedRatioId === ratio.id && <div className="w-2 h-2 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}
+                      </button>
+                    ))}
+                  </div>
+               </div>
+             </div>
+          </div>
+        );
+      case 2: 
+        return (
+          <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col">
+             <div className="bg-blue-500/10 border border-blue-500/20 px-3 py-2 rounded-lg text-xs text-blue-200/80 shrink-0">
+               Chế độ: <b>Multimodal Edit</b>.
+             </div>
+             <div className="flex-1 min-h-0">
+               <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh gốc" />
+             </div>
+          </div>
+        );
+      case 3: 
+        return (
+           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col">
+             <div className="bg-purple-500/10 border border-purple-500/20 px-3 py-2 rounded-lg text-xs text-purple-200/80 shrink-0">
+               <b>Biến phác thảo thành ảnh thật</b>.
+             </div>
+             <div className="shrink-0">
+                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.values(RATIO_CONFIG).map((ratio) => (
+                    <button
+                      key={ratio.id}
+                      onClick={() => handleRatioChange(ratio.id)}
+                      className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between
+                        ${selectedRatioId === ratio.id 
+                          ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' 
+                          : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}
+                    >
+                      <span className="font-medium text-[10px]">{ratio.label}</span>
+                      {selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}
+                    </button>
+                  ))}
+                </div>
+             </div>
+             <div className="flex-1 min-h-0">
+               <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh phác thảo" />
+             </div>
+           </div>
+        );
+      case 4: 
+        return (
+          <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col">
+             <div className="bg-emerald-500/10 border border-emerald-500/20 px-3 py-2 rounded-lg text-xs text-emerald-200/80 shrink-0">
+               <b>Face Generation</b>.
+             </div>
+             <div className="shrink-0">
+                <label className="text-[10px] font-bold text-white/40 uppercase mb-1.5 block">Tỉ lệ (Output)</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {Object.values(RATIO_CONFIG).map((ratio) => (
+                    <button
+                      key={ratio.id}
+                      onClick={() => handleRatioChange(ratio.id)}
+                      className={`py-2 px-2 rounded-lg text-xs border transition-all flex items-center justify-between
+                        ${selectedRatioId === ratio.id 
+                          ? 'bg-blue-500/20 border-blue-400 text-blue-200 shadow-md shadow-blue-500/10' 
+                          : 'bg-black/20 border-white/5 text-white/50 hover:bg-white/5'}`}
+                    >
+                      <span className="font-medium text-[10px]">{ratio.label}</span>
+                      {selectedRatioId === ratio.id && <div className="w-1.5 h-1.5 rounded-full bg-blue-400 shadow-[0_0_8px_rgba(96,165,250,0.8)]"/>}
+                    </button>
+                  ))}
+                </div>
+             </div>
+             <div className="flex-1 min-h-0">
+               <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải ảnh khuôn mặt" />
+             </div>
+          </div>
+        );
       default: return null;
     }
   };
 
-  const TABS = [{ id: 1, label: 'Tạo Ảnh', icon: Wand2 }, { id: 2, label: 'Chỉnh Sửa', icon: Settings2 }, { id: 3, label: 'Sketch', icon: PenTool }, { id: 4, label: 'Face ID', icon: UserSquare2 }, { id: 5, label: 'Batch Edit (thử nghiệm)', icon: Layers }];
+  const TABS = [
+    { id: 1, label: 'Tạo Ảnh', icon: Wand2 },
+    { id: 2, label: 'Chỉnh Sửa', icon: Settings2 },
+    { id: 3, label: 'Sketch', icon: PenTool },
+    { id: 4, label: 'Face ID', icon: UserSquare2 },
+    { id: 5, label: 'Batch Edit (thử nghiệm)', icon: Layers } 
+  ];
 
   return (
     <div className="flex flex-col h-screen w-full bg-[#0f172a] text-white overflow-hidden relative font-sans selection:bg-blue-500/30">
       <div className="absolute top-[-20%] left-[-10%] w-[60%] h-[60%] bg-purple-600/20 rounded-full blur-[150px] pointer-events-none" />
       <div className="absolute bottom-[-20%] right-[-10%] w-[60%] h-[60%] bg-blue-600/20 rounded-full blur-[150px] pointer-events-none" />
+
+      {/* TOP NAVBAR */}
       <div className="h-16 flex items-center justify-between px-6 border-b border-white/5 bg-white/5 backdrop-blur-md z-20 shrink-0">
-        <div className="flex items-center gap-3"><div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20"><Sparkles className="text-white" size={18} /></div><h1 className="text-lg font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/60 tracking-tight">AIGen</h1></div>
-        <nav className="flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-white/5">{TABS.map((item) => (<button key={item.id} onClick={() => switchTab(item.id)} className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 text-sm font-medium ${activeTab === item.id ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10' : 'text-white/40 hover:text-white hover:bg-white/5'}`}><item.icon size={16} /><span className="hidden sm:inline">{item.label}</span></button>))}</nav>
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-blue-500 to-purple-500 flex items-center justify-center shadow-lg shadow-blue-500/20">
+            <Sparkles className="text-white" size={18} />
+          </div>
+          <h1 className="text-lg font-bold tracking-tight">
+            <span className="text-white/60 text-sm font-light">Create by </span>
+            <span className="bg-clip-text text-transparent bg-gradient-to-r from-blue-400 to-purple-400 font-extrabold text-xl font-handwriting">Neito</span>
+          </h1>
+        </div>
+
+        <nav className="flex items-center gap-1 bg-black/20 p-1 rounded-xl border border-white/5">
+          {TABS.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => switchTab(item.id)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg transition-all duration-300 text-sm font-medium
+                ${activeTab === item.id 
+                  ? 'bg-white/10 text-white shadow-sm ring-1 ring-white/10' 
+                  : 'text-white/40 hover:text-white hover:bg-white/5'}`}
+            >
+              <item.icon size={16} />
+              <span className="hidden sm:inline">{item.label}</span>
+            </button>
+          ))}
+        </nav>
       </div>
+
+      {/* MAIN CONTENT */}
       <div className="flex-1 flex overflow-hidden z-10">
+        
+        {/* LEFT DASHBOARD */}
         <div className="w-full md:w-[360px] border-r border-white/5 bg-black/10 backdrop-blur-sm flex flex-col h-full">
           <div className="flex-1 flex flex-col p-5 gap-5 min-h-0">
+            
             <div className="shrink-0 flex justify-between items-start">
                 <div>
                    <h2 className="text-xl font-semibold text-white/90">{TABS.find(t => t.id === activeTab)?.label}</h2>
                    <p className="text-xs text-white/40 mt-1">{activeTab === 5 ? 'Sửa 1 ảnh, áp dụng cho tất cả.' : 'AI Creative Suite.'}</p>
                 </div>
+                {/* NÚT TRỢ GIÚP */}
                 <button onClick={() => setShowHelp(true)} className="p-2 text-white/40 hover:text-blue-400 transition-colors" title="Hướng dẫn sử dụng"><HelpCircle size={20} /></button>
             </div>
-            <div className="shrink-0 space-y-2 mt-4"><label className="text-[10px] font-bold text-white/40 uppercase flex justify-between">Prompt {activeTab === 5 && "(Áp dụng cho ảnh đầu tiên)"}<span className="text-white/20">{prompt.length}/500</span></label><div className="relative group"><textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={activeTab === 2 || activeTab === 5 ? "VD: Thêm hiệu ứng màu film, làm nét ảnh..." : "VD: Một chú mèo máy futuristic..."} className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-3 text-white text-sm focus:border-blue-500/50 focus:bg-black/30 outline-none resize-none transition-all placeholder:text-white/20" /><div className="absolute bottom-2 right-2"><Wand2 size={14} className="text-white/20" /></div></div></div>
-            <div className="flex-1 min-h-0">{renderControls()}</div>
+
+            <div className="shrink-0 space-y-2 mt-4">
+              <label className="text-[10px] font-bold text-white/40 uppercase flex justify-between">
+                Prompt {activeTab === 5 && "(Áp dụng cho ảnh đầu tiên)"}
+                <span className="text-white/20">{prompt.length}/500</span>
+              </label>
+              <div className="relative group">
+                <textarea 
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder={activeTab === 2 || activeTab === 5 ? "VD: Thêm hiệu ứng màu film, làm nét ảnh..." : "VD: Một chú mèo máy futuristic..."}
+                  className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-3 text-white text-sm focus:border-blue-500/50 focus:bg-black/30 outline-none resize-none transition-all placeholder:text-white/20"
+                />
+                <div className="absolute bottom-2 right-2">
+                   <Wand2 size={14} className="text-white/20" />
+                </div>
+              </div>
+            </div>
+
+            <div className="flex-1 min-h-0">
+               {renderControls()}
+            </div>
+          
           </div>
-          <div className="p-5 border-t border-white/5 bg-black/20 shrink-0"><button onClick={handleGenerate} disabled={isGenerating || (!prompt && activeTab !== 2 && activeTab !== 3 && activeTab !== 4 && activeTab !== 5) || (activeTab !== 1 && inputFiles.length === 0)} className={`w-full py-3 rounded-xl font-bold text-base shadow-xl flex items-center justify-center gap-2 transition-all ${isGenerating ? 'bg-white/5 text-white/50 cursor-not-allowed' : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 hover:shadow-blue-500/20 text-white transform active:scale-[0.98]'}`}>{isGenerating ? (<span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> {activeTab === 5 ? 'Đang Batch...' : 'Đang tạo...'}</span>) : (<><Sparkles size={18} fill="currentColor" /> {activeTab === 5 ? 'Sửa hàng loạt' : 'Tạo ngay'}</>)}</button></div>
+
+          <div className="p-5 border-t border-white/5 bg-black/20 shrink-0">
+            <button 
+              onClick={handleGenerate}
+              disabled={isGenerating || (!prompt && activeTab === 1)}
+              className={`w-full py-3 rounded-xl font-bold text-base shadow-xl flex items-center justify-center gap-2 transition-all
+                ${isGenerating 
+                  ? 'bg-white/5 text-white/50 cursor-not-allowed' 
+                  : 'bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 hover:shadow-blue-500/20 text-white transform active:scale-[0.98]'}`}
+            >
+              {isGenerating ? (
+                 <span className="flex items-center gap-2"><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"/> {activeTab === 5 ? 'Đang Batch...' : 'Đang tạo...'}</span>
+              ) : (
+                <>
+                  <Sparkles size={18} fill="currentColor" /> {activeTab === 5 ? 'Sửa hàng loạt' : 'Tạo ngay'}
+                </>
+              )}
+            </button>
+          </div>
         </div>
-        <div className="flex-1 bg-black/20 p-6 overflow-y-auto custom-scrollbar flex flex-col"><div className="flex-1 max-w-5xl mx-auto w-full h-full"><ResultSection activeTab={activeTab} resultImage={resultImage} batchResults={batchResults} isGenerating={isGenerating} history={histories[activeTab]} onViewFull={openLightbox} onDownload={downloadImage} error={error} onRemoveHistory={(index) => handleRemoveHistory(activeTab, index)} onViewBatchHistory={(folder) => openLightbox(folder.items, 0)} onRegenerateSingle={handleRegenerateSingle} /></div></div>
+
+        {/* RIGHT PANEL */}
+        <div className="flex-1 bg-black/20 p-6 overflow-y-auto custom-scrollbar flex flex-col">
+          <div className="flex-1 max-w-5xl mx-auto w-full h-full">
+            <ResultSection 
+              activeTab={activeTab}
+              resultImage={resultImage}
+              batchResults={batchResults}
+              isGenerating={isGenerating}
+              history={histories[activeTab]}
+              onViewFull={openLightbox}
+              onDownload={downloadImage}
+              error={error}
+              onRemoveHistory={(index) => handleRemoveHistory(activeTab, index)}
+              onViewBatchHistory={(folder) => openLightbox(folder.items, 0)}
+              onRegenerateSingle={handleRegenerateSingle}
+            />
+          </div>
+        </div>
       </div>
-      {lightboxData.isOpen && (<Lightbox images={lightboxData.images} initialIndex={lightboxData.index} onClose={() => setLightboxData({ ...lightboxData, isOpen: false })} onDownload={downloadImage} />)}
+
+      {/* Lightbox */}
+      {lightboxData.isOpen && (
+        <Lightbox 
+            images={lightboxData.images} 
+            initialIndex={lightboxData.index}
+            onClose={() => setLightboxData({ ...lightboxData, isOpen: false })}
+            onDownload={downloadImage}
+        />
+      )}
       
+      {/* HELP MODAL */}
       {showHelp && <HelpModal tabId={activeTab} onClose={() => setShowHelp(false)} />}
 
-      <style>{`.custom-scrollbar::-webkit-scrollbar { width: 5px; } .custom-scrollbar::-webkit-scrollbar-track { background: transparent; } .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; } .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); } .animate-spin-slow { animation: spin 3s linear infinite; } @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+        .animate-spin-slow { animation: spin 3s linear infinite; }
+        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        /* Add font handwriting style fallback */
+        .font-handwriting { font-family: 'Brush Script MT', cursive; }
+      `}</style>
     </div>
   );
 }
