@@ -42,78 +42,67 @@ const HELP_CONTENT = {
     1: {
         title: "Hướng dẫn: Tạo Ảnh (Text-to-Image)",
         steps: [
-            "1. Chọn tỉ lệ khung hình mong muốn (Vuông, Ngang, Dọc...).",
-            "2. Nhập mô tả chi tiết về bức ảnh bạn muốn tạo vào ô Prompt.",
-            "   - Ví dụ: 'Một chú mèo máy futuristic đang bay giữa thành phố Cyberpunk'.",
-            "3. Nhấn nút 'Tạo ngay'.",
-            "4. Đợi AI xử lý và nhận kết quả. Ảnh sẽ được tạo trên nền khổ lớn để đảm bảo độ nét.",
-            "Lưu ý: Bạn có thể tải ảnh về máy bằng nút Download."
+            "1. Chọn tỉ lệ khung hình mong muốn.",
+            "2. Nhập mô tả chi tiết vào ô Prompt.",
+            "3. Nhấn 'Tạo ngay'. Ảnh được tạo trên nền khổ lớn (4K Upscaled) để đảm bảo độ nét.",
         ]
     },
     2: {
         title: "Hướng dẫn: Chỉnh Sửa (Image Editing)",
         steps: [
-            "1. Tải lên ảnh gốc bạn muốn chỉnh sửa.",
-            "2. Nhập yêu cầu chỉnh sửa vào ô Prompt.",
-            "   - Ví dụ: 'Thêm kính râm cho người trong ảnh', 'Đổi nền sang buổi tối'.",
-            "3. Nhấn nút 'Tạo ngay'. AI sẽ giữ nguyên các chi tiết không liên quan và chỉ sửa theo yêu cầu.",
-            "4. Ảnh kết quả sẽ được upscale lên chất lượng cao nhất."
+            "1. Tải ảnh gốc lên.",
+            "2. Nhập yêu cầu chỉnh sửa (VD: 'Thêm kính râm').",
+            "3. Nhấn 'Tạo ngay'. AI sẽ giữ nguyên chi tiết không liên quan.",
         ]
     },
     3: {
-        title: "Hướng dẫn: Sketch (Phác thảo sang Ảnh thật)",
+        title: "Hướng dẫn: Sketch (Phác thảo)",
         steps: [
-            "1. Chọn tỉ lệ khung hình đầu ra mong muốn.",
-            "2. Tải lên ảnh phác thảo (Sketch) của bạn. Nét vẽ có thể đơn giản hoặc chi tiết.",
-            "3. Nhập Prompt mô tả phong cách và vật liệu bạn muốn.",
-            "   - Ví dụ: 'Biệt thự hiện đại, kính trong suốt, gỗ tự nhiên, ánh sáng ấm'.",
-            "4. Nhấn nút 'Tạo ngay'.",
-            "Cơ chế: AI sẽ tự động vẽ bù (outpaint) nếu ảnh không kín khổ giấy và biến nét vẽ thành ảnh chụp siêu thực (Hyper-Realistic)."
+            "1. Tải ảnh phác thảo lên.",
+            "2. Nhập mô tả phong cách/vật liệu.",
+            "3. AI sẽ vẽ bù (outpaint) phần thiếu để lấp đầy khổ giấy và biến nét vẽ thành ảnh thật.",
         ]
     },
     4: {
-        title: "Hướng dẫn: Face ID (Thay đổi nhân vật)",
+        title: "Hướng dẫn: Face ID",
         steps: [
-            "1. Chọn tỉ lệ khung hình đầu ra.",
-            "2. Tải lên ảnh chụp người mẫu hoặc ảnh chân dung gốc.",
-            "3. Nhập Prompt mô tả bối cảnh hoặc phong cách mới.",
-            "   - Ví dụ: 'Một chiến binh Viking đứng giữa tuyết trắng'.",
-            "4. Nhấn nút 'Tạo ngay'.",
-            "Cơ chế: AI sẽ mở rộng bối cảnh (outpaint) và thay đổi trang phục/bối cảnh nhưng giữ nguyên nhận diện khuôn mặt của chủ thể."
+            "1. Tải ảnh người mẫu lên.",
+            "2. Nhập mô tả bối cảnh mới.",
+            "3. AI sẽ mở rộng bối cảnh và thay đổi nhân vật nhưng giữ nguyên khuôn mặt.",
         ]
     },
     5: {
         title: "Hướng dẫn: Batch Edit (Sửa hàng loạt)",
         steps: [
-            "1. Tải lên MỘT LOẠT ảnh (nhiều ảnh cùng lúc) có cùng chủ đề hoặc bối cảnh.",
-            "   - Ảnh đầu tiên (#1) sẽ được dùng làm MẪU.",
-            "2. Nhập Prompt chỉnh sửa áp dụng cho ảnh đầu tiên.",
-            "3. Nhấn nút 'Sửa hàng loạt'.",
-            "Quy trình AI:",
-            "   - Bước 1: Sửa ảnh #1 theo prompt để tạo ra 'Ảnh kết quả mẫu'.",
-            "   - Bước 2: Phân tích sự thay đổi giữa 'Ảnh gốc #1' và 'Ảnh kết quả mẫu'.",
-            "   - Bước 3: Áp dụng 'công thức thay đổi' đó lên tất cả các ảnh còn lại (#2, #3...).",
-            "   - Đảm bảo: Giữ nguyên bố cục của từng ảnh con, chỉ thay đổi phong cách/chi tiết cho đồng bộ với ảnh mẫu."
+            "1. Tải NHIỀU ảnh cùng lúc. Ảnh đầu tiên (#1) là MẪU.",
+            "2. Nhập prompt sửa cho ảnh #1.",
+            "3. AI sửa ảnh #1, phân tích thay đổi, rồi áp dụng công thức đó cho các ảnh sau.",
         ]
     }
 };
 
 // --- UTILS ---
 
-// Hàm tạo Canvas trắng (Tờ giấy ảo)
+// Hàm tạo Canvas trắng (Tờ giấy ảo) - Logic cốt lõi cho Tab 1
 const createBlankCanvas = (ratioId) => {
     return new Promise((resolve) => {
         const config = RATIO_CONFIG[ratioId] || RATIO_CONFIG['square'];
-        let width = 2048; 
-        let height = 2048;
-
+        // Kích thước nền tảng (Base Dimension). 
+        // Chọn 1536px để cân bằng giữa chất lượng và tốc độ xử lý của AI.
+        // Sau đó hàm upscaleResultImage sẽ lo việc phóng to lên 4K.
+        const BASE_DIMENSION = 1536; 
+        
+        let width, height;
         const [rW, rH] = config.apiValue.split(':').map(Number);
         const ratio = rW / rH;
 
         if (ratio >= 1) {
+            // Ngang hoặc Vuông
+            width = BASE_DIMENSION;
             height = Math.round(width / ratio);
         } else {
-            height = 2048;
+            // Dọc
+            height = BASE_DIMENSION;
             width = Math.round(height * ratio);
         }
 
@@ -122,6 +111,7 @@ const createBlankCanvas = (ratioId) => {
         canvas.height = height;
         const ctx = canvas.getContext('2d');
 
+        // Tô nền trắng tinh (để AI có chỗ vẽ)
         ctx.fillStyle = '#FFFFFF';
         ctx.fillRect(0, 0, width, height);
 
@@ -151,8 +141,8 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         let finalWidth = sourceWidth;
         let finalHeight = sourceHeight;
 
+        // Logic resize thông minh
         if (taskType === 'batch') {
-            // Batch Mode: Giữ nguyên tỉ lệ gốc, chỉ giới hạn kích thước tối đa
             if (sourceWidth > MAX_DIMENSION || sourceHeight > MAX_DIMENSION) {
                 const scale = Math.min(MAX_DIMENSION / sourceWidth, MAX_DIMENSION / sourceHeight);
                 finalWidth = sourceWidth * scale;
@@ -170,7 +160,6 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                finalWidth = Math.round(MAX_DIMENSION * targetRatio);
            }
         } else {
-            // Fallback resize logic
             if (sourceWidth > MAX_DIMENSION || sourceHeight > MAX_DIMENSION) {
                 const scale = Math.min(MAX_DIMENSION / sourceWidth, MAX_DIMENSION / sourceHeight);
                 finalWidth = sourceWidth * scale;
@@ -190,18 +179,22 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
              ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
         } else if (targetRatioId) {
             if (taskType === 'face' || taskType === 'sketch' || taskType === 'creation') {
-                // Outpaint Logic
+                // Outpaint/Creation Logic: Fit & Center on White Background
+                // Với 'creation', img chính là blank canvas được tạo đúng tỉ lệ, nên nó sẽ fill đầy canvas này.
                 ctx.fillStyle = '#FFFFFF'; 
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
+                
                 let scale = Math.min(finalWidth / img.width, finalHeight / img.height);
-                if (scale > 1.5) scale = 1.5; 
+                // Giới hạn phóng to để tránh vỡ ảnh gốc (không áp dụng cho creation vì blank canvas đã nét)
+                if (taskType !== 'creation' && scale > 1.5) scale = 1.5; 
+                
                 const drawW = img.width * scale;
                 const drawH = img.height * scale;
                 const x = (finalWidth - drawW) / 2;
                 const y = (finalHeight - drawH) / 2;
                 ctx.drawImage(img, x, y, drawW, drawH);
             } else {
-                // Edit Logic
+                // Edit Logic: Fill & Crop
                 ctx.filter = 'blur(40px) brightness(0.8)';
                 const fillScale = Math.max(finalWidth / img.width, finalHeight / img.height);
                 ctx.drawImage(img, (finalWidth - img.width * fillScale)/2, (finalHeight - img.height * fillScale)/2, img.width * fillScale, img.height * fillScale);
@@ -251,35 +244,41 @@ const applySharpening = (ctx, width, height, amount = 1) => {
 
 // --- GOOGLE API FUNCTIONS ---
 
-const generateGoogleImage = async (prompt, ratioId) => {
-  const aspectRatio = RATIO_CONFIG[ratioId]?.apiValue || '1:1';
-  const urlV3 = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${apiKey}`;
-  const payloadV3 = {
-    instances: [{ prompt: prompt }],
-    parameters: { sampleCount: 1, aspectRatio: aspectRatio, addWatermark: false }
-  };
-  try {
-    const response = await fetch(urlV3, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadV3) });
-    if (response.ok) {
-        const data = await response.json();
-        const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
-        if (base64Image) return `data:image/png;base64,${base64Image}`;
-    }
-  } catch (e) { console.warn("Imagen 3.0 failed, trying fallback...", e); }
+// HÀM UPSCALE CHUYÊN BIỆT
+const upscaleResultImage = (base64Data) => {
+    return new Promise((resolve) => {
+        const img = new Image();
+        img.src = `data:image/png;base64,${base64Data}`;
+        img.onload = () => {
+            const MAX_UPSCALE_SIZE = 4096; // 4K Target
+            let targetW = img.width;
+            let targetH = img.height;
 
-  const urlFallback = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
-  let ratioInstruction = "square aspect ratio (1:1)";
-  if (aspectRatio === '16:9') ratioInstruction = "wide cinematic aspect ratio (16:9)";
-  if (aspectRatio === '9:16') ratioInstruction = "tall portrait aspect ratio (9:16)";
-  if (aspectRatio === '4:3') ratioInstruction = "standard photo aspect ratio (4:3)";
-  const fallbackPrompt = `ROLE: Image Generator. TASK: Create a photorealistic image based on this description: "${prompt}". REQUIREMENT: The output image MUST be in ${ratioInstruction}. QUALITY: High resolution, detailed.`;
-  const payloadFallback = { contents: [{ parts: [{ text: fallbackPrompt }] }], generationConfig: { responseModalities: ['IMAGE'] } };
-  const responseFallback = await fetch(urlFallback, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payloadFallback) });
-  if (!responseFallback.ok) { const errorData = await responseFallback.json().catch(() => ({})); throw new Error(errorData.error?.message || `Lỗi API: ${responseFallback.status}`); }
-  const dataFallback = await responseFallback.json();
-  const imagePart = dataFallback.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!imagePart) throw new Error("API không trả về dữ liệu ảnh.");
-  return `data:image/png;base64,${imagePart.inlineData.data}`;
+            if (targetW < MAX_UPSCALE_SIZE && targetH < MAX_UPSCALE_SIZE) {
+                const scaleW = MAX_UPSCALE_SIZE / targetW;
+                const scaleH = MAX_UPSCALE_SIZE / targetH;
+                const scale = Math.min(scaleW, scaleH);
+                // Luôn upscale nếu nhỏ hơn 4K
+                if (scale > 1) {
+                    targetW = Math.round(targetW * scale);
+                    targetH = Math.round(targetH * scale);
+                }
+            }
+
+            const canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            const ctx = canvas.getContext('2d');
+            
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            
+            ctx.drawImage(img, 0, 0, targetW, targetH);
+            applySharpening(ctx, targetW, targetH, 0.5); // Làm nét nhẹ
+
+            resolve(canvas.toDataURL('image/png'));
+        };
+    });
 };
 
 const analyzeImageDelta = async (orgFile, resBase64) => {
@@ -312,11 +311,35 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
           return { inlineData: { mimeType: compressed.mimeType, data: compressed.data } };
       }));
 
+      // Chế độ 'creation' sẽ có prompt riêng, không cần commonInstructions chung chung
       let ratioInstruction = ratioId ? `**ASPECT RATIO**: Output must match ${RATIO_CONFIG[ratioId].label}` : "Maintain aspect ratio.";
-      const commonInstructions = `GENERAL RULES: 1. **HIGH RESOLUTION**: Crisp, sharp. 2. **NO BLUR**. 3. **PHOTOREALISTIC** (DSLR quality). ${ratioInstruction}`;
+      
+      const commonInstructions = `
+        GENERAL RULES: 
+        1. **RESOLUTION**: OUTPUT MUST BE EXTREMELY SHARP, 8K, HIGH FIDELITY.
+        2. **DETAILS**: Micro-details must be visible. NO BLUR.
+        3. **PHOTOREALISTIC**: DSLR quality, ray-tracing lighting, physically based rendering (PBR).
+        ${ratioInstruction}
+      `;
 
       if (taskType === 'creation') {
-        systemContext = `${commonInstructions} ROLE: Master Painter. INPUT: Blank canvas. TASK: GENERATE new image in viewport based on: "${prompt}". FILL ENTIRE CANVAS.`;
+        // --- LOGIC MỚI CHO TAB 1 (TẠO ẢNH) ---
+        // Sử dụng Canvas trắng làm đầu vào để ép tỉ lệ chính xác.
+        systemContext = `
+          ROLE: Master Digital Artist & Photographer.
+          
+          **INPUT**: A blank canvas image. The dimensions of this image define the EXACT Aspect Ratio and Viewport.
+          
+          **TASK**: 
+          - Create a BRAND NEW, HYPER-REALISTIC IMAGE *inside* this viewport based on the prompt: "${prompt}".
+          - **FILL THE ENTIRE CANVAS**: You must paint over every single white pixel. Do not leave any white borders or margins.
+          - **COMPOSITION**: Center the subject and compose the scene to fit perfectly within this specific canvas shape.
+          
+          **QUALITY REQUIREMENTS (MANDATORY)**:
+          1. **Photorealistic**: The image must look like a high-end photograph.
+          2. **Sharpness**: Every detail must be razor-sharp. No blur, no artifacts.
+          3. **Lighting**: Use cinematic, volumetric lighting.
+        `;
       } else if (taskType === 'edit') {
         systemContext = `${commonInstructions} ROLE: Photo Manipulator. TASK: Execute: "${prompt}".`;
       } else if (taskType === 'sketch') {
@@ -332,7 +355,10 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
   const data = await response.json();
   const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
   if (!imagePart) { const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text); throw new Error(textPart?.text || "AI không trả về ảnh."); }
-  return `data:image/png;base64,${imagePart.inlineData.data}`;
+  
+  // --- TỰ ĐỘNG UPSCALE NGAY KHI CÓ KẾT QUẢ ---
+  const upscaledDataUrl = await upscaleResultImage(imagePart.inlineData.data);
+  return upscaledDataUrl; // Trả về ảnh đã upscale
 };
 
 // --- HELP COMPONENT ---
@@ -673,6 +699,7 @@ export default function AIArtApp() {
       } else {
         let url;
         if (activeTab === 1) {
+            // --- LOGIC MỚI TAB 1: TẠO CANVAS TRẮNG & VẼ ---
             const blankCanvasData = await createBlankCanvas(selectedRatioId);
             url = await generateMultimodalImage(prompt, [blankCanvasData], 'creation');
         } else {
@@ -974,7 +1001,7 @@ export default function AIArtApp() {
           <div className="p-5 border-t border-white/5 bg-black/20 shrink-0">
             <button 
               onClick={handleGenerate}
-              disabled={isGenerating || (!prompt && activeTab === 1)}
+              disabled={isGenerating || (!prompt && activeTab !== 2 && activeTab !== 3 && activeTab !== 4 && activeTab !== 5) || (activeTab !== 1 && inputFiles.length === 0)}
               className={`w-full py-3 rounded-xl font-bold text-base shadow-xl flex items-center justify-center gap-2 transition-all
                 ${isGenerating 
                   ? 'bg-white/5 text-white/50 cursor-not-allowed' 
