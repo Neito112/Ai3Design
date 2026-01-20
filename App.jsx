@@ -88,8 +88,7 @@ const createBlankCanvas = (ratioId) => {
     return new Promise((resolve) => {
         const config = RATIO_CONFIG[ratioId] || RATIO_CONFIG['square'];
         // Kích thước nền tảng (Base Dimension). 
-        // Chọn 1536px để cân bằng giữa chất lượng và tốc độ xử lý của AI.
-        // Sau đó hàm upscaleResultImage sẽ lo việc phóng to lên 4K.
+        // 1536px là kích thước tối ưu để cân bằng chất lượng và tốc độ cho Gemini
         const BASE_DIMENSION = 1536; 
         
         let width, height;
@@ -141,7 +140,6 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         let finalWidth = sourceWidth;
         let finalHeight = sourceHeight;
 
-        // Logic resize thông minh
         if (taskType === 'batch') {
             if (sourceWidth > MAX_DIMENSION || sourceHeight > MAX_DIMENSION) {
                 const scale = Math.min(MAX_DIMENSION / sourceWidth, MAX_DIMENSION / sourceHeight);
@@ -179,14 +177,12 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
              ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
         } else if (targetRatioId) {
             if (taskType === 'face' || taskType === 'sketch' || taskType === 'creation') {
-                // Outpaint/Creation Logic: Fit & Center on White Background
-                // Với 'creation', img chính là blank canvas được tạo đúng tỉ lệ, nên nó sẽ fill đầy canvas này.
+                // Outpaint Logic / Creation Logic: Fit & Center on White Background
                 ctx.fillStyle = '#FFFFFF'; 
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
                 
                 let scale = Math.min(finalWidth / img.width, finalHeight / img.height);
-                // Giới hạn phóng to để tránh vỡ ảnh gốc (không áp dụng cho creation vì blank canvas đã nét)
-                if (taskType !== 'creation' && scale > 1.5) scale = 1.5; 
+                // Với creation, img là blank canvas nên scale sẽ là 1, lấp đầy.
                 
                 const drawW = img.width * scale;
                 const drawH = img.height * scale;
@@ -258,7 +254,6 @@ const upscaleResultImage = (base64Data) => {
                 const scaleW = MAX_UPSCALE_SIZE / targetW;
                 const scaleH = MAX_UPSCALE_SIZE / targetH;
                 const scale = Math.min(scaleW, scaleH);
-                // Luôn upscale nếu nhỏ hơn 4K
                 if (scale > 1) {
                     targetW = Math.round(targetW * scale);
                     targetH = Math.round(targetH * scale);
@@ -280,6 +275,8 @@ const upscaleResultImage = (base64Data) => {
         };
     });
 };
+
+// KHÔNG CẦN generateGoogleImage NỮA VÌ ĐÃ CÓ generateMultimodalImage XỬ LÝ TẤT CẢ
 
 const analyzeImageDelta = async (orgFile, resBase64) => {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
@@ -311,9 +308,9 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
           return { inlineData: { mimeType: compressed.mimeType, data: compressed.data } };
       }));
 
-      // Chế độ 'creation' sẽ có prompt riêng, không cần commonInstructions chung chung
       let ratioInstruction = ratioId ? `**ASPECT RATIO**: Output must match ${RATIO_CONFIG[ratioId].label}` : "Maintain aspect ratio.";
       
+      // --- CẬP NHẬT: PROMPT CHẤT LƯỢNG CAO ---
       const commonInstructions = `
         GENERAL RULES: 
         1. **RESOLUTION**: OUTPUT MUST BE EXTREMELY SHARP, 8K, HIGH FIDELITY.
@@ -325,6 +322,7 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
       if (taskType === 'creation') {
         // --- LOGIC MỚI CHO TAB 1 (TẠO ẢNH) ---
         // Sử dụng Canvas trắng làm đầu vào để ép tỉ lệ chính xác.
+        // Prompt nhấn mạnh độ chân thực và sắc nét.
         systemContext = `
           ROLE: Master Digital Artist & Photographer.
           
@@ -337,7 +335,7 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
           
           **QUALITY REQUIREMENTS (MANDATORY)**:
           1. **Photorealistic**: The image must look like a high-end photograph.
-          2. **Sharpness**: Every detail must be razor-sharp. No blur, no artifacts.
+          2. **Sharpness**: Razor-sharp details, texture, and focus. No blur or artifacts.
           3. **Lighting**: Use cinematic, volumetric lighting.
         `;
       } else if (taskType === 'edit') {
@@ -350,15 +348,28 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, 
   }
 
   const payload = { contents: [{ parts: [{ text: `${systemContext}\n\nUser Request: ${prompt}` }, ...imageParts] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } };
-  const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-  if (!response.ok) { const errorData = await response.json().catch(() => ({})); throw new Error(errorData.error?.message || `Lỗi Gemini API: ${response.status}`); }
-  const data = await response.json();
-  const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-  if (!imagePart) { const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text); throw new Error(textPart?.text || "AI không trả về ảnh."); }
   
-  // --- TỰ ĐỘNG UPSCALE NGAY KHI CÓ KẾT QUẢ ---
-  const upscaledDataUrl = await upscaleResultImage(imagePart.inlineData.data);
-  return upscaledDataUrl; // Trả về ảnh đã upscale
+  // Xử lý lỗi cẩn thận hơn cho Gemini API
+  try {
+      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!response.ok) { 
+        if (response.status === 401) {
+             throw new Error("Lỗi xác thực (401). Vui lòng kiểm tra API Key.");
+        }
+        const errorData = await response.json().catch(() => ({})); 
+        throw new Error(errorData.error?.message || `Lỗi Gemini API: ${response.status}`); 
+      }
+      const data = await response.json();
+      const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+      if (!imagePart) { const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text); throw new Error(textPart?.text || "AI không trả về ảnh."); }
+      
+      // --- TỰ ĐỘNG UPSCALE NGAY KHI CÓ KẾT QUẢ ---
+      const upscaledDataUrl = await upscaleResultImage(imagePart.inlineData.data);
+      return upscaledDataUrl; 
+  } catch (error) {
+      console.error("Gemini Generation Error:", error);
+      throw error;
+  }
 };
 
 // --- HELP COMPONENT ---
@@ -700,7 +711,9 @@ export default function AIArtApp() {
         let url;
         if (activeTab === 1) {
             // --- LOGIC MỚI TAB 1: TẠO CANVAS TRẮNG & VẼ ---
+            // Gọi hàm tạo canvas trắng đúng tỉ lệ
             const blankCanvasData = await createBlankCanvas(selectedRatioId);
+            // Gửi canvas này cho AI với task 'creation'
             url = await generateMultimodalImage(prompt, [blankCanvasData], 'creation');
         } else {
             let taskType = 'edit';
