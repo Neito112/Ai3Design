@@ -416,7 +416,7 @@ const Lightbox = ({ images, initialIndex, onClose, onDownload }) => {
   const isError = typeof currentImgData === 'object' && currentImgData.status === 'error';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 backdrop-blur-xl animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xl animate-in fade-in duration-200">
       <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors z-50"><X size={28} /></button>
       {images.length > 1 && (<><button onClick={handlePrev} disabled={currentIndex === 0} className={`absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full transition-all z-50 ${currentIndex === 0 ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/20'}`}><ChevronLeft size={32} /></button><button onClick={handleNext} disabled={currentIndex === images.length - 1} className={`absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full transition-all z-50 ${currentIndex === images.length - 1 ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/20'}`}><ChevronRight size={32} /></button></>)}
       <div className={`relative max-w-[90vw] max-h-[85vh]`}>
