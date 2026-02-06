@@ -87,7 +87,6 @@ const HELP_CONTENT = {
 const createBlankCanvas = (ratioId) => {
     return new Promise((resolve) => {
         const config = RATIO_CONFIG[ratioId] || RATIO_CONFIG['square'];
-        // Kích thước nền tảng (Base Dimension). 
         const BASE_DIMENSION = 1536; 
         
         let width, height;
@@ -181,14 +180,10 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                 ctx.fillRect(0, 0, finalWidth, finalHeight);
                 
                 let scale = Math.min(finalWidth / img.width, finalHeight / img.height);
-                // Với creation (Tab 1), img chính là blank canvas nên scale = 1, lấp đầy luôn
-                // Với sketch/face, scale để fit
-                let scale_val = Math.min(finalWidth / img.width, finalHeight / img.height);
-                 // Giới hạn phóng to để tránh vỡ ảnh gốc (không áp dụng cho creation vì blank canvas đã nét)
-                if (taskType !== 'creation' && scale_val > 1.5) scale_val = 1.5;
-
-                const drawW = img.width * scale_val;
-                const drawH = img.height * scale_val;
+                // Với creation, img là blank canvas nên scale sẽ là 1, lấp đầy.
+                
+                const drawW = img.width * scale;
+                const drawH = img.height * scale;
                 const x = (finalWidth - drawW) / 2;
                 const y = (finalHeight - drawH) / 2;
                 ctx.drawImage(img, x, y, drawW, drawH);
@@ -383,7 +378,7 @@ const HelpModal = ({ tabId, onClose }) => {
     if (!content) return null;
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
             <div className="bg-[#1e293b] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl relative" onClick={e => e.stopPropagation()}>
                 <button onClick={onClose} className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors"><X size={20}/></button>
                 <div className="flex items-center gap-3 mb-4 text-blue-400">
@@ -416,13 +411,25 @@ const Lightbox = ({ images, initialIndex, onClose, onDownload }) => {
   const isError = typeof currentImgData === 'object' && currentImgData.status === 'error';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-xl animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}>
       <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors z-50"><X size={28} /></button>
       {images.length > 1 && (<><button onClick={handlePrev} disabled={currentIndex === 0} className={`absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full transition-all z-50 ${currentIndex === 0 ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/20'}`}><ChevronLeft size={32} /></button><button onClick={handleNext} disabled={currentIndex === images.length - 1} className={`absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full transition-all z-50 ${currentIndex === images.length - 1 ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/20'}`}><ChevronRight size={32} /></button></>)}
-      <div className={`relative max-w-[90vw] max-h-[85vh]`}>
+      
+      {/* Wrapper to stop propagation */}
+      <div className={`relative max-w-[90vw] max-h-[85vh]`} onClick={(e) => e.stopPropagation()}>
         {isLoading ? (<div className="flex flex-col items-center justify-center w-[600px] h-[400px] bg-white/5 rounded-xl border border-white/10"><div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-4" /><p className="text-blue-200 font-medium animate-pulse">Đang xử lý...</p></div>) : isError ? (<div className="flex flex-col items-center justify-center w-[600px] h-[400px] bg-red-500/10 rounded-xl border border-red-500/20 text-red-200"><AlertCircle size={48} className="mb-2" /><p>Lỗi hiển thị</p></div>) : (<img src={currentUrl} alt="Result" className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" />)}
       </div>
-      <div className="absolute bottom-8 flex flex-col items-center gap-3"><span className="text-white/50 text-sm font-medium tracking-widest bg-black/40 px-3 py-1 rounded-full border border-white/5">{currentIndex + 1} / {images.length}</span>{!isLoading && !isError && (<div className="flex items-center gap-3"><button onClick={() => onDownload(currentUrl, '2k')} className="px-6 py-2.5 bg-white text-black font-bold rounded-full hover:bg-gray-200 transition flex items-center gap-2 shadow-lg shadow-white/10"><Download size={18} /> Tải 2K</button><button onClick={() => onDownload(currentUrl, '4k')} className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-full hover:bg-blue-500 transition flex items-center gap-2 shadow-lg shadow-blue-500/20"><Download size={18} /> Tải 4K</button></div>)}</div>
+      
+      {/* Footer controls wrapper to stop propagation */}
+      <div className="absolute bottom-8 flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
+          <span className="text-white/50 text-sm font-medium tracking-widest bg-black/40 px-3 py-1 rounded-full border border-white/5">{currentIndex + 1} / {images.length}</span>
+          {!isLoading && !isError && (
+              <div className="flex items-center gap-3">
+                 <button onClick={() => onDownload(currentUrl, '2k')} className="px-6 py-2.5 bg-white text-black font-bold rounded-full hover:bg-gray-200 transition flex items-center gap-2 shadow-lg shadow-white/10"><Download size={18} /> Tải 2K</button>
+                 <button onClick={() => onDownload(currentUrl, '4k')} className="px-6 py-2.5 bg-blue-600 text-white font-bold rounded-full hover:bg-blue-500 transition flex items-center gap-2 shadow-lg shadow-blue-500/20"><Download size={18} /> Tải 4K</button>
+              </div>
+          )}
+      </div>
     </div>
   );
 };
@@ -477,7 +484,8 @@ const ResultSection = ({ resultImage, batchResults, isGenerating, activeTab, his
   // Single Mode View (Tab 1, 2, 3, 4)
   return (
     <div className="flex flex-col h-full gap-4">
-      <div className={`flex-1 bg-black/20 rounded-2xl border border-white/10 relative overflow-hidden flex items-center justify-center min-h-[300px] transition-all duration-500 ease-out ${resultImage && !isGenerating ? 'cursor-zoom-in hover:scale-[1.02] hover:-translate-y-2 hover:shadow-[0_30px_60px_-15px_rgba(0,0,0,0.6)] hover:border-white/30' : ''}`} onClick={() => resultImage && onViewFull([resultImage], 0)}>
+      <div className={`flex-1 bg-black/20 rounded-2xl border border-white/10 relative overflow-hidden flex items-center justify-center min-h-[300px] transition-all duration-500 ease-out ${resultImage && !isGenerating ? 'cursor-zoom-in hover:scale-[1.02] hover:-translate-y-2 hover:shadow-[0_30px_60px_-15px_rgba(0,0,0,0.6)] hover:border-white/30' : ''}`} 
+           onClick={() => resultImage && onViewFull(history.length > 0 ? history : [resultImage], 0)}>
         {isGenerating ? (<div className="flex flex-col items-center justify-center text-blue-400 animate-pulse"><Sparkles size={48} className="mb-4 animate-spin-slow" /><span className="text-lg font-medium tracking-wider">AI đang xử lý...</span></div>) : error ? (<div className="flex flex-col items-center justify-center text-red-400 text-center p-4"><AlertCircle size={48} className="mb-2" /><p className="font-bold">Đã xảy ra lỗi</p><p className="text-sm opacity-80 mt-1 max-w-md">{error}</p></div>) : resultImage ? (<img src={resultImage} alt="AI Result" className="w-full h-full object-contain animate-in fade-in zoom-in duration-500 drop-shadow-md" />) : (<div className="text-white/30 flex flex-col items-center"><ImageIcon size={64} className="mb-2 opacity-50" /><p>Kết quả hiển thị tại đây</p></div>)}
       </div>
       
@@ -493,7 +501,8 @@ const ResultSection = ({ resultImage, batchResults, isGenerating, activeTab, his
                </div>
           </div>
         </div>
-        {history.length === 0 ? (<div className="flex-1 flex items-center justify-center text-white/20 text-sm">Chưa có lịch sử</div>) : (<div className="flex gap-2 flex-1 min-h-0 overflow-x-auto custom-scrollbar">{history.map((item, idx) => { return (<div key={idx} className="relative w-24 shrink-0 rounded-lg overflow-hidden border border-white/10 cursor-pointer group hover:border-white/40 transition-all h-full bg-black/30" onClick={() => onViewFull(item)}><img src={item} alt="hist" className={`w-full h-full object-cover`} /><div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" /><button onClick={(e) => { e.stopPropagation(); onRemoveHistory(idx); }} className="absolute top-1 right-1 p-1 bg-red-500/90 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md backdrop-blur-sm z-10"><X size={10} strokeWidth={3} /></button></div>); })}</div>)}
+        {/* Pass idx to onViewFull for correct navigation */}
+        {history.length === 0 ? (<div className="flex-1 flex items-center justify-center text-white/20 text-sm">Chưa có lịch sử</div>) : (<div className="flex gap-2 flex-1 min-h-0 overflow-x-auto custom-scrollbar">{history.map((item, idx) => { return (<div key={idx} className="relative w-24 shrink-0 rounded-lg overflow-hidden border border-white/10 cursor-pointer group hover:border-white/40 transition-all h-full bg-black/30" onClick={() => onViewFull(history, idx)}><img src={item} alt="hist" className={`w-full h-full object-cover`} /><div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" /><button onClick={(e) => { e.stopPropagation(); onRemoveHistory(idx); }} className="absolute top-1 right-1 p-1 bg-red-500/90 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md backdrop-blur-sm z-10"><X size={10} strokeWidth={3} /></button></div>); })}</div>)}
       </div>
     </div>
   );
@@ -803,7 +812,7 @@ export default function AIArtApp() {
       }
   };
 
-  const downloadImage = (url) => {
+  const downloadImage = (url, resolution = '4k') => {
     const img = new Image();
     img.crossOrigin = "anonymous";
     img.src = url;
@@ -839,7 +848,7 @@ export default function AIArtApp() {
         
         const link = document.createElement('a');
         link.href = downloadUrl;
-        link.download = `AIGen_MaxRes_${Date.now()}.png`;
+        link.download = `AIGen_${resolution.toUpperCase()}_${Date.now()}.png`;
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
