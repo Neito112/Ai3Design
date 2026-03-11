@@ -14,22 +14,16 @@ import {
   Trash2,
   Plus,
   AlertCircle,
-  ScanLine,
-  Zap,
-  Layers,       // Icon cho Batch
-  ChevronLeft,  // Icon điều hướng
+  Layers,       
+  ChevronLeft,  
   ChevronRight,
-  Loader2,      // Icon loading
-  Trash,        // Icon xóa
-  FileJson,     // Icon backup
-  RotateCw,     // Icon Tạo lại
-  HelpCircle    // Icon Trợ giúp
+  FolderOpen,
+  RotateCw,
+  HelpCircle
 } from 'lucide-react';
 
-// --- GLOBAL API KEY CONFIGURATION ---
-const apiKey = ""; 
+const apiKey = "";
 
-// --- CONFIGURATION ---
 const RATIO_CONFIG = {
   'square': { id: 'square', label: '1:1 (Vuông)', apiValue: '1:1', sizes: [{ w: 1024, h: 1024 }] },
   'landscape': { id: 'landscape', label: '16:9 (Ngang)', apiValue: '16:9', sizes: [{ w: 1280, h: 720 }] },
@@ -37,14 +31,13 @@ const RATIO_CONFIG = {
   'standard': { id: 'standard', label: '4:3 (Chuẩn)', apiValue: '4:3', sizes: [{ w: 1024, h: 768 }] },
 };
 
-// --- HELP CONTENT ---
 const HELP_CONTENT = {
     1: {
         title: "Hướng dẫn: Tạo Ảnh (Text-to-Image)",
         steps: [
             "1. Chọn tỉ lệ khung hình mong muốn.",
             "2. Nhập mô tả chi tiết vào ô Prompt.",
-            "3. Nhấn 'Tạo ngay'. Ảnh được tạo trên nền khổ lớn (4K Upscaled) để đảm bảo độ nét.",
+            "3. Nhấn 'Tạo ngay'. Ảnh được tạo trên nền khổ lớn (Upscaled) để đảm bảo độ nét.",
         ]
     },
     2: {
@@ -74,53 +67,28 @@ const HELP_CONTENT = {
     5: {
         title: "Hướng dẫn: Batch Edit (Sửa hàng loạt)",
         steps: [
-            "1. Tải NHIỀU ảnh cùng lúc. Ảnh đầu tiên (#1) là MẪU.",
-            "2. Nhập prompt sửa cho ảnh #1.",
-            "3. AI sửa ảnh #1, phân tích thay đổi, rồi áp dụng công thức đó cho các ảnh sau.",
+            "1. Tải NHIỀU ảnh cùng lúc.",
+            "2. Nhập Prompt chỉnh sửa (áp dụng chung cho tất cả).",
+            "3. Nhấn 'Sửa hàng loạt'. AI sẽ lần lượt sửa từng ảnh theo Prompt bạn nhập.",
         ]
     }
 };
 
-// --- UTILS ---
-
-// Hàm tạo Canvas trắng (Tờ giấy ảo) - Logic cốt lõi cho Tab 1
-const createBlankCanvas = (ratioId) => {
-    return new Promise((resolve) => {
-        const config = RATIO_CONFIG[ratioId] || RATIO_CONFIG['square'];
-        const BASE_DIMENSION = 1536; 
-        
-        let width, height;
-        const [rW, rH] = config.apiValue.split(':').map(Number);
-        const ratio = rW / rH;
-
-        if (ratio >= 1) {
-            // Ngang hoặc Vuông
-            width = BASE_DIMENSION;
-            height = Math.round(width / ratio);
-        } else {
-            // Dọc
-            height = BASE_DIMENSION;
-            width = Math.round(height * ratio);
-        }
-
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-
-        // Tô nền trắng tinh (để AI có chỗ vẽ)
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillRect(0, 0, width, height);
-
-        canvas.toBlob((blob) => {
-            const file = new File([blob], "blank_canvas.png", { type: "image/png" });
-            resolve({
-                file: file,
-                preview: URL.createObjectURL(file),
-                dims: { w: width, h: height }
-            });
-        }, 'image/png');
-    });
+const fetchWithRetry = async (url, options) => {
+  const delays = [1000, 2000, 4000];
+  for (let i = 0; i < delays.length; i++) {
+    try {
+      const response = await fetch(url, options);
+      if (response.ok) return response;
+      if (response.status === 401 || response.status === 403 || response.status === 400) {
+        return response; 
+      }
+      if (i === delays.length - 1) return response;
+    } catch (error) {
+      if (i === delays.length - 1) throw error;
+    }
+    await new Promise(res => setTimeout(res, delays[i]));
+  }
 };
 
 const compressImage = (file, targetRatioId = null, taskType = null) => {
@@ -131,23 +99,13 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
       const img = new Image();
       img.src = event.target.result;
       img.onload = () => {
-        let sourceWidth = img.width;
-        let sourceHeight = img.height;
-        const MAX_DIMENSION = 2048; 
-        
-        let finalWidth = sourceWidth;
-        let finalHeight = sourceHeight;
+        const MAX_DIMENSION = 1024; 
+        let finalWidth = img.width;
+        let finalHeight = img.height;
 
-        if (taskType === 'batch') {
-            if (sourceWidth > MAX_DIMENSION || sourceHeight > MAX_DIMENSION) {
-                const scale = Math.min(MAX_DIMENSION / sourceWidth, MAX_DIMENSION / sourceHeight);
-                finalWidth = sourceWidth * scale;
-                finalHeight = sourceHeight * scale;
-            }
-        } else if (targetRatioId && RATIO_CONFIG[targetRatioId]) {
+        if (targetRatioId && RATIO_CONFIG[targetRatioId]) {
            const [rW, rH] = RATIO_CONFIG[targetRatioId].apiValue.split(':').map(Number);
            const targetRatio = rW / rH;
-           
            if (targetRatio >= 1) { 
                finalWidth = MAX_DIMENSION;
                finalHeight = Math.round(MAX_DIMENSION / targetRatio);
@@ -156,10 +114,10 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
                finalWidth = Math.round(MAX_DIMENSION * targetRatio);
            }
         } else {
-            if (sourceWidth > MAX_DIMENSION || sourceHeight > MAX_DIMENSION) {
-                const scale = Math.min(MAX_DIMENSION / sourceWidth, MAX_DIMENSION / sourceHeight);
-                finalWidth = sourceWidth * scale;
-                finalHeight = sourceHeight * scale;
+            const scale = Math.min(MAX_DIMENSION / img.width, MAX_DIMENSION / img.height);
+            if (scale < 1) {
+                finalWidth = Math.round(img.width * scale);
+                finalHeight = Math.round(img.height * scale);
             }
         }
 
@@ -171,42 +129,24 @@ const compressImage = (file, targetRatioId = null, taskType = null) => {
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
 
-        if (taskType === 'batch') {
-             ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
-        } else if (targetRatioId) {
-            if (taskType === 'face' || taskType === 'sketch' || taskType === 'creation') {
-                // Outpaint Logic / Creation Logic: Fit & Center on White Background
-                ctx.fillStyle = '#FFFFFF'; 
-                ctx.fillRect(0, 0, finalWidth, finalHeight);
-                
-                let scale = Math.min(finalWidth / img.width, finalHeight / img.height);
-                // Với creation, img là blank canvas nên scale sẽ là 1, lấp đầy.
-                
-                const drawW = img.width * scale;
-                const drawH = img.height * scale;
-                const x = (finalWidth - drawW) / 2;
-                const y = (finalHeight - drawH) / 2;
-                ctx.drawImage(img, x, y, drawW, drawH);
-            } else {
-                // Edit Logic: Fill & Crop
-                ctx.filter = 'blur(40px) brightness(0.8)';
-                const fillScale = Math.max(finalWidth / img.width, finalHeight / img.height);
-                ctx.drawImage(img, (finalWidth - img.width * fillScale)/2, (finalHeight - img.height * fillScale)/2, img.width * fillScale, img.height * fillScale);
-                ctx.filter = 'none';
-                const scale = Math.min(finalWidth / img.width, finalHeight / img.height);
-                ctx.drawImage(img, (finalWidth - img.width * scale)/2, (finalHeight - img.height * scale)/2, img.width * scale, img.height * scale);
-            }
+        if (targetRatioId) {
+            ctx.fillStyle = '#FFFFFF'; 
+            ctx.fillRect(0, 0, finalWidth, finalHeight);
+            let scale = Math.min(finalWidth / img.width, finalHeight / img.height);
+            const drawW = img.width * scale;
+            const drawH = img.height * scale;
+            const x = (finalWidth - drawW) / 2;
+            const y = (finalHeight - drawH) / 2;
+            ctx.drawImage(img, x, y, drawW, drawH);
         } else {
             ctx.drawImage(img, 0, 0, finalWidth, finalHeight);
         }
         
-        const isPng = file.type === 'image/png';
-        const outputType = isPng ? 'image/png' : 'image/jpeg';
         resolve({
-            data: dataUrl = canvas.toDataURL(outputType, 0.95).split(',')[1],
+            data: canvas.toDataURL('image/jpeg', 0.85).split(',')[1],
             width: finalWidth,
             height: finalHeight,
-            mimeType: outputType
+            mimeType: 'image/jpeg'
         });
       };
     };
@@ -236,15 +176,12 @@ const applySharpening = (ctx, width, height, amount = 1) => {
   ctx.putImageData(imageData, 0, 0);
 };
 
-// --- GOOGLE API FUNCTIONS ---
-
-// HÀM UPSCALE CHUYÊN BIỆT
 const upscaleResultImage = (base64Data) => {
     return new Promise((resolve) => {
         const img = new Image();
-        img.src = `data:image/png;base64,${base64Data}`;
+        img.src = `data:image/jpeg;base64,${base64Data}`;
         img.onload = () => {
-            const MAX_UPSCALE_SIZE = 4096; // 4K Target
+            const MAX_UPSCALE_SIZE = 2048; 
             let targetW = img.width;
             let targetH = img.height;
 
@@ -267,118 +204,105 @@ const upscaleResultImage = (base64Data) => {
             ctx.imageSmoothingQuality = 'high';
             
             ctx.drawImage(img, 0, 0, targetW, targetH);
-            applySharpening(ctx, targetW, targetH, 0.5); // Làm nét nhẹ
+            applySharpening(ctx, targetW, targetH, 0.5); 
 
-            resolve(canvas.toDataURL('image/png'));
+            resolve(canvas.toDataURL('image/jpeg', 0.9));
         };
     });
 };
 
-const generateGoogleImage = async (prompt, ratioId) => {
-  // Legacy function - Not used for Tab 1 anymore
-  return null;
-};
+const getErrorMessage = (status) => {
+  if (status === 401) {
+    if (!apiKey || apiKey.trim() === "") {
+        return "Lỗi 401 (Hệ thống chưa nạp được API Key). Vui lòng F5 lại trang web này vài lần để máy chủ kích hoạt Token cho bạn.";
+    }
+    return "Lỗi 401: API Key bị từ chối.";
+  }
+  if (status === 403) return "Lỗi 403: Môi trường chưa cấp quyền dùng model này.";
+  if (status === 429) return "Lỗi 429: Hệ thống máy chủ đang quá tải. Bạn hãy chờ 30 giây rồi thử lại nhé.";
+  return `Lỗi hệ thống (Mã: ${status}). Vui lòng thử lại sau.`;
+}
 
-const analyzeImageDelta = async (orgFile, resBase64) => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
-    const orgCompressed = await compressImage(orgFile); 
-    const resData = resBase64.split(',')[1];
-    const prompt = `ROLE: Computer Vision Analyst. TASK: Compare Image 1 (Original) and Image 2 (Edited). GOAL: Describe the "Added Elements" or "Style Changes". OUTPUT: A concise instruction string.`;
-    const payload = { contents: [{ parts: [ { text: prompt }, { inlineData: { mimeType: orgCompressed.mimeType, data: orgCompressed.data } }, { inlineData: { mimeType: 'image/png', data: resData } } ] }] };
-    const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-    if (!response.ok) return null;
+const generateGoogleImage = async (prompt) => {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+    const payload = {
+        instances: { prompt: prompt },
+        parameters: { sampleCount: 1 }
+    };
+    
+    const response = await fetchWithRetry(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    
+    if (!response || !response.ok) {
+        throw new Error(getErrorMessage(response ? response.status : 0));
+    }
+    
     const data = await response.json();
-    return data.candidates?.[0]?.content?.parts?.[0]?.text || "";
+    const base64Image = data.predictions?.[0]?.bytesBase64Encoded;
+    if (!base64Image) throw new Error("API không trả về dữ liệu ảnh hợp lệ.");
+    return await upscaleResultImage(base64Image);
 };
 
-const generateMultimodalImage = async (prompt, files, taskType, ratioId = null, extraContext = null) => {
+const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) => {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
-  let imageParts = [];
-  let systemContext = "";
   
-  if (taskType === 'batch_execute' && extraContext) {
-      const targetCompressed = await compressImage(files[0].file, ratioId, taskType);
-      const res1Base64 = extraContext.referenceResult.split(',')[1];
-      imageParts = [ { inlineData: { mimeType: targetCompressed.mimeType, data: targetCompressed.data } }, { inlineData: { mimeType: 'image/png', data: res1Base64 } } ];
-      const instr = extraContext.instructions;
-      systemContext = `ROLE: Strict Visual Transfer Engine. INPUTS: [IMAGE 1 - CANVAS], [IMAGE 2 - ASSET SOURCE]. INSTRUCTION: "${instr}". RULES: 1. STRUCTURE LOCK: Preserve IMAGE 1 layout/pose 100%. 2. ASSET CLONING: Copy style/objects from IMAGE 2 to IMAGE 1. 3. FAIL STATE: If output background matches IMAGE 2, you fail.`;
-  } else {
-      const processedFiles = files.slice(0, 3);
-      imageParts = await Promise.all(processedFiles.map(async (f) => {
-          const compressed = await compressImage(f.file, ratioId, taskType);
-          return { inlineData: { mimeType: compressed.mimeType, data: compressed.data } };
-      }));
+  const processedFiles = files.slice(0, 3);
+  const imageParts = await Promise.all(processedFiles.map(async (f) => {
+      const compressed = await compressImage(f.file, ratioId, taskType);
+      return { inlineData: { mimeType: compressed.mimeType, data: compressed.data } };
+  }));
 
-      let ratioInstruction = ratioId ? `**ASPECT RATIO**: Output must match ${RATIO_CONFIG[ratioId].label}` : "Maintain aspect ratio.";
-      
-      const commonInstructions = `
-        GENERAL RULES: 
-        1. **RESOLUTION**: OUTPUT MUST BE EXTREMELY SHARP, 8K, HIGH FIDELITY.
-        2. **DETAILS**: Micro-details must be visible. NO BLUR.
-        3. **PHOTOREALISTIC**: DSLR quality, ray-tracing lighting, physically based rendering (PBR).
-        ${ratioInstruction}
-      `;
+  let systemContext = "";
+  let ratioInstruction = ratioId ? `**ASPECT RATIO**: Match ${RATIO_CONFIG[ratioId].label}` : "Maintain aspect ratio.";
+  
+  const commonInstructions = `
+    GENERAL RULES: 
+    1. **RESOLUTION**: OUTPUT MUST BE SHARP AND HIGH FIDELITY.
+    2. **PHOTOREALISTIC**: DSLR quality, realistic lighting.
+    ${ratioInstruction}
+  `;
 
-      if (taskType === 'creation') {
-        // --- LOGIC MỚI CHO TAB 1 (TẠO ẢNH) ---
-        // Sử dụng Canvas trắng làm đầu vào để ép tỉ lệ chính xác.
-        // Prompt nhấn mạnh độ chân thực và sắc nét.
-        systemContext = `
-          ROLE: Master Digital Artist & Photographer.
-          
-          **INPUT**: A blank canvas image. The dimensions of this image define the EXACT ASPECT RATIO and VIEWPORT (e.g. 16:9, 9:16).
-          
-          **TASK**: 
-          - Create a BRAND NEW, HYPER-REALISTIC IMAGE *inside* this viewport based on the prompt: "${prompt}".
-          - **MANDATORY**: You MUST paint over every single white pixel. The final image must fill the entire canvas. Do NOT leave any white borders or margins.
-          - **COMPOSITION**: Center the subject and compose the scene to fit perfectly within this specific canvas shape.
-          
-          **QUALITY REQUIREMENTS**:
-          1. **Photorealistic**: The image must look like a high-end photograph.
-          2. **Sharpness**: Razor-sharp details, texture, and focus. No blur or artifacts.
-          3. **Lighting**: Use cinematic, volumetric lighting.
-        `;
-      } else if (taskType === 'edit') {
-        systemContext = `${commonInstructions} ROLE: Photo Manipulator. TASK: Execute: "${prompt}".`;
-      } else if (taskType === 'sketch') {
-        systemContext = `${commonInstructions} ROLE: High-End Architectural Engine. INPUT ANALYSIS: Sketch on white canvas. CRITICAL: IGNORE NOISE/MESSY LINES. EXTRACT 3D GEOMETRY. MISSION: Transform into HYPER-REALISTIC PHOTO. MATERIALS: PBR (Glass reflects, Wood grain). STEPS: 1. OUTPAINT: Fill empty space. 2. RENDER: Convert geometry to 3D objects.`;
-      } else if (taskType === 'face') {
-        systemContext = `${commonInstructions} ROLE: Visual Identity Synthesizer. TASK: 1. OUTPAINT: Fill white space. 2. FACE ID: Transform subject ("${prompt}"). Keep identity.`;
-      }
+  if (taskType === 'edit' || taskType === 'batch') {
+    systemContext = `${commonInstructions} ROLE: Photo Manipulator. TASK: Edit the provided image exactly as described in the prompt: "${prompt}". PRESERVE original composition.`;
+  } else if (taskType === 'sketch') {
+    systemContext = `${commonInstructions} ROLE: High-End Architectural Engine. INPUT ANALYSIS: Sketch. CRITICAL: IGNORE NOISE/MESSY LINES. EXTRACT 3D GEOMETRY. MISSION: Transform into HYPER-REALISTIC PHOTO.`;
+  } else if (taskType === 'face') {
+    systemContext = `${commonInstructions} ROLE: Visual Identity Synthesizer. TASK: 1. OUTPAINT: Fill white space. 2. FACE ID: Transform subject ("${prompt}"). Keep identity.`;
   }
 
-  const payload = { contents: [{ parts: [{ text: `${systemContext}\n\nUser Request: ${prompt}` }, ...imageParts] }], generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } };
+  const payload = { 
+      contents: [{ 
+          parts: [
+              { text: `${systemContext}\n\nUser Request: ${prompt}` }, 
+              ...imageParts
+          ] 
+      }], 
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] } 
+  };
   
-  // Xử lý lỗi cẩn thận hơn cho Gemini API
   try {
-      const response = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-      if (!response.ok) { 
-        if (response.status === 401) {
-             throw new Error("Lỗi xác thực (401). Vui lòng kiểm tra API Key.");
-        }
-        const errorData = await response.json().catch(() => ({})); 
-        throw new Error(errorData.error?.message || `Lỗi Gemini API: ${response.status}`); 
+      const response = await fetchWithRetry(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      if (!response || !response.ok) { 
+          throw new Error(getErrorMessage(response ? response.status : 0));
       }
       const data = await response.json();
-      const imagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-      if (!imagePart) { const textPart = data.candidates?.[0]?.content?.parts?.find(p => p.text); throw new Error(textPart?.text || "AI không trả về ảnh."); }
+      const returnImagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+      if (!returnImagePart) { 
+          throw new Error("AI không trả về ảnh hợp lệ (có thể do lỗi vi phạm chính sách nội dung)."); 
+      }
       
-      // --- TỰ ĐỘNG UPSCALE NGAY KHI CÓ KẾT QUẢ ---
-      const upscaledDataUrl = await upscaleResultImage(imagePart.inlineData.data);
-      return upscaledDataUrl; 
+      return await upscaleResultImage(returnImagePart.inlineData.data); 
   } catch (error) {
       console.error("Gemini Generation Error:", error);
       throw error;
   }
 };
 
-// --- HELP COMPONENT ---
 const HelpModal = ({ tabId, onClose }) => {
     const content = HELP_CONTENT[tabId];
     if (!content) return null;
 
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/80 backdrop-blur-sm animate-in fade-in duration-200" onClick={onClose}>
             <div className="bg-[#1e293b] border border-white/10 rounded-2xl p-6 max-w-md w-full shadow-2xl relative" onClick={e => e.stopPropagation()}>
                 <button onClick={onClose} className="absolute top-4 right-4 text-white/50 hover:text-white transition-colors"><X size={20}/></button>
                 <div className="flex items-center gap-3 mb-4 text-blue-400">
@@ -399,7 +323,6 @@ const HelpModal = ({ tabId, onClose }) => {
     );
 };
 
-// --- COMPONENTS ---
 const Lightbox = ({ images, initialIndex, onClose, onDownload }) => {
   const [currentIndex, setCurrentIndex] = useState(initialIndex);
   useEffect(() => { setCurrentIndex(initialIndex); }, [initialIndex]);
@@ -411,16 +334,14 @@ const Lightbox = ({ images, initialIndex, onClose, onDownload }) => {
   const isError = typeof currentImgData === 'object' && currentImgData.status === 'error';
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md animate-in fade-in duration-200" onClick={onClose}>
       <button onClick={onClose} className="absolute top-6 right-6 p-2 bg-white/10 rounded-full text-white hover:bg-white/20 transition-colors z-50"><X size={28} /></button>
       {images.length > 1 && (<><button onClick={handlePrev} disabled={currentIndex === 0} className={`absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full transition-all z-50 ${currentIndex === 0 ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/20'}`}><ChevronLeft size={32} /></button><button onClick={handleNext} disabled={currentIndex === images.length - 1} className={`absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full transition-all z-50 ${currentIndex === images.length - 1 ? 'bg-white/5 text-white/20 cursor-not-allowed' : 'bg-white/10 text-white hover:bg-white/20'}`}><ChevronRight size={32} /></button></>)}
       
-      {/* Wrapper to stop propagation */}
       <div className={`relative max-w-[90vw] max-h-[85vh]`} onClick={(e) => e.stopPropagation()}>
         {isLoading ? (<div className="flex flex-col items-center justify-center w-[600px] h-[400px] bg-white/5 rounded-xl border border-white/10"><div className="w-12 h-12 border-4 border-blue-500/30 border-t-blue-500 rounded-full animate-spin mb-4" /><p className="text-blue-200 font-medium animate-pulse">Đang xử lý...</p></div>) : isError ? (<div className="flex flex-col items-center justify-center w-[600px] h-[400px] bg-red-500/10 rounded-xl border border-red-500/20 text-red-200"><AlertCircle size={48} className="mb-2" /><p>Lỗi hiển thị</p></div>) : (<img src={currentUrl} alt="Result" className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" />)}
       </div>
       
-      {/* Footer controls wrapper to stop propagation */}
       <div className="absolute bottom-8 flex flex-col items-center gap-3" onClick={(e) => e.stopPropagation()}>
           <span className="text-white/50 text-sm font-medium tracking-widest bg-black/40 px-3 py-1 rounded-full border border-white/5">{currentIndex + 1} / {images.length}</span>
           {!isLoading && !isError && (
@@ -435,17 +356,19 @@ const Lightbox = ({ images, initialIndex, onClose, onDownload }) => {
 };
 
 const ResultSection = ({ resultImage, batchResults, isGenerating, activeTab, history, onViewFull, onDownload, error, onRemoveHistory, onViewBatchHistory, onRegenerateSingle }) => {
-  // Hàm xử lý download batch
   const handleBatchDownload = (resolution) => {
-      if(Array.isArray(resultImage)) {
-          resultImage.forEach(img => { 
-             onDownload(img, resolution);
+      if (Array.isArray(batchResults)) {
+          batchResults.forEach(item => {
+             if(item.status === 'done' && item.url) {
+                 onDownload(item.url, resolution);
+             }
           });
       }
   };
 
   if (activeTab === 5) {
      const displayList = batchResults.length > 0 ? batchResults : [];
+     const canDownloadBatch = batchResults.filter(item => item.status === 'done').length > 0;
      return (
        <div className="flex flex-col h-full gap-4">
           <div className="flex-1 bg-black/20 rounded-2xl border border-white/10 p-4 overflow-y-auto custom-scrollbar">
@@ -462,34 +385,30 @@ const ResultSection = ({ resultImage, batchResults, isGenerating, activeTab, his
                 </div>
              )}
           </div>
-          {/* Cập nhật thanh công cụ dưới cùng cho Batch */}
           <div className="h-32 bg-black/10 rounded-xl border border-white/5 p-3 flex flex-col overflow-hidden">
             <div className="flex items-center justify-between mb-2 shrink-0">
                 <div className="flex items-center gap-2 text-white/60 text-xs uppercase font-bold"><History size={14} /> Lịch sử (Folders)</div>
                 <div className="flex gap-2 items-center">
                     <div className="flex items-center gap-1 bg-white/5 rounded-lg border border-white/5 p-1">
                         <span className="text-[10px] text-white/40 px-1 font-bold uppercase">Tải tất cả:</span>
-                        <button onClick={() => handleBatchDownload('2k')} disabled={!resultImage || resultImage.length === 0} className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold rounded transition">2K</button>
-                        <button onClick={() => handleBatchDownload('4k')} disabled={!resultImage || resultImage.length === 0} className="px-2 py-1 bg-blue-600/80 hover:bg-blue-500 text-white text-[10px] font-bold rounded transition">4K</button>
+                        <button onClick={() => handleBatchDownload('2k')} disabled={!canDownloadBatch} className="px-2 py-1 bg-white/10 hover:bg-white/20 text-white text-[10px] font-bold rounded transition disabled:opacity-50">2K</button>
+                        <button onClick={() => handleBatchDownload('4k')} disabled={!canDownloadBatch} className="px-2 py-1 bg-blue-600/80 hover:bg-blue-500 text-white text-[10px] font-bold rounded transition disabled:opacity-50">4K</button>
                     </div>
                 </div>
             </div>
-             {/* History List */}
             {history.length === 0 ? (<div className="flex-1 flex items-center justify-center text-white/20 text-sm">Chưa có lịch sử</div>) : (<div className="flex gap-2 flex-1 min-h-0 overflow-x-auto custom-scrollbar">{history.map((item, idx) => { const isFolder = item.type === 'batch'; const displayImg = isFolder ? item.cover : item; return (<div key={idx} className="relative w-24 shrink-0 rounded-lg overflow-hidden border border-white/10 cursor-pointer group hover:border-white/40 transition-all h-full bg-black/30" onClick={() => onViewFull(isFolder ? item.items : item)}><img src={displayImg} alt="hist" className={`w-full h-full object-cover ${isFolder ? 'opacity-60 group-hover:opacity-100 transition-opacity' : ''}`} />{isFolder && (<div className="absolute inset-0 flex items-center justify-center pointer-events-none"><FolderOpen size={24} className="text-white drop-shadow-lg" /><div className="absolute bottom-1 right-1 text-[9px] font-bold bg-black/60 px-1 rounded text-white border border-white/10">{item.items?.length || 0}</div></div>)}<div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" /><button onClick={(e) => { e.stopPropagation(); onRemoveHistory(idx); }} className="absolute top-1 right-1 p-1 bg-red-500/90 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md backdrop-blur-sm z-10"><X size={10} strokeWidth={3} /></button></div>); })}</div>)}
           </div>
        </div>
      );
   }
   
-  // Single Mode View (Tab 1, 2, 3, 4)
   return (
     <div className="flex flex-col h-full gap-4">
       <div className={`flex-1 bg-black/20 rounded-2xl border border-white/10 relative overflow-hidden flex items-center justify-center min-h-[300px] transition-all duration-500 ease-out ${resultImage && !isGenerating ? 'cursor-zoom-in hover:scale-[1.02] hover:-translate-y-2 hover:shadow-[0_30px_60px_-15px_rgba(0,0,0,0.6)] hover:border-white/30' : ''}`} 
            onClick={() => resultImage && onViewFull(history.length > 0 ? history : [resultImage], 0)}>
-        {isGenerating ? (<div className="flex flex-col items-center justify-center text-blue-400 animate-pulse"><Sparkles size={48} className="mb-4 animate-spin-slow" /><span className="text-lg font-medium tracking-wider">AI đang xử lý...</span></div>) : error ? (<div className="flex flex-col items-center justify-center text-red-400 text-center p-4"><AlertCircle size={48} className="mb-2" /><p className="font-bold">Đã xảy ra lỗi</p><p className="text-sm opacity-80 mt-1 max-w-md">{error}</p></div>) : resultImage ? (<img src={resultImage} alt="AI Result" className="w-full h-full object-contain animate-in fade-in zoom-in duration-500 drop-shadow-md" />) : (<div className="text-white/30 flex flex-col items-center"><ImageIcon size={64} className="mb-2 opacity-50" /><p>Kết quả hiển thị tại đây</p></div>)}
+        {isGenerating ? (<div className="flex flex-col items-center justify-center text-blue-400 animate-pulse"><Sparkles size={48} className="mb-4 animate-spin-slow" /><span className="text-lg font-medium tracking-wider">AI đang xử lý...</span></div>) : error ? (<div className="flex flex-col items-center justify-center text-red-400 text-center p-4 max-w-[80%] mx-auto"><AlertCircle size={48} className="mb-2" /><p className="font-bold text-lg mb-1">Đã xảy ra lỗi</p><p className="text-sm opacity-90 whitespace-pre-wrap">{error}</p></div>) : resultImage ? (<img src={resultImage} alt="AI Result" className="w-full h-full object-contain animate-in fade-in zoom-in duration-500 drop-shadow-md" />) : (<div className="text-white/30 flex flex-col items-center"><ImageIcon size={64} className="mb-2 opacity-50" /><p>Kết quả hiển thị tại đây</p></div>)}
       </div>
       
-      {/* Cập nhật thanh công cụ dưới cùng cho Single Mode */}
       <div className="h-32 bg-black/10 rounded-xl border border-white/5 p-3 flex flex-col overflow-hidden">
         <div className="flex items-center justify-between mb-2 shrink-0">
           <div className="flex items-center gap-2 text-white/60 text-xs uppercase font-bold"><History size={14} /> Lịch sử</div>
@@ -501,14 +420,12 @@ const ResultSection = ({ resultImage, batchResults, isGenerating, activeTab, his
                </div>
           </div>
         </div>
-        {/* Pass idx to onViewFull for correct navigation */}
         {history.length === 0 ? (<div className="flex-1 flex items-center justify-center text-white/20 text-sm">Chưa có lịch sử</div>) : (<div className="flex gap-2 flex-1 min-h-0 overflow-x-auto custom-scrollbar">{history.map((item, idx) => { return (<div key={idx} className="relative w-24 shrink-0 rounded-lg overflow-hidden border border-white/10 cursor-pointer group hover:border-white/40 transition-all h-full bg-black/30" onClick={() => onViewFull(history, idx)}><img src={item} alt="hist" className={`w-full h-full object-cover`} /><div className="absolute inset-0 bg-black/0 group-hover:bg-black/20 transition-colors" /><button onClick={(e) => { e.stopPropagation(); onRemoveHistory(idx); }} className="absolute top-1 right-1 p-1 bg-red-500/90 rounded-full text-white opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-600 shadow-md backdrop-blur-sm z-10"><X size={10} strokeWidth={3} /></button></div>); })}</div>)}
       </div>
     </div>
   );
 };
 
-// --- UPDATED IMAGE UPLOADER ---
 const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh lên" }) => {
   const fileInputRef = useRef(null);
   const MAX_SIZE_MB = 20; 
@@ -520,7 +437,7 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
   const handleFileChange = async (e) => {
     const selectedFiles = Array.from(e.target.files);
     await processFiles(selectedFiles);
-    e.target.value = null; // Allow re-upload
+    e.target.value = null; 
   };
 
   const processFiles = async (selectedFiles) => {
@@ -590,7 +507,6 @@ const ImageUploader = ({ files, setFiles, multiple = false, label = "Tải ảnh
                     </div>
                   ))}
                   
-                  {/* RESTORED ADD BUTTON */}
                   <div 
                     className="aspect-square rounded-lg border border-dashed border-white/20 flex flex-col items-center justify-center text-white/30 hover:text-white/80 hover:border-white/40 hover:bg-white/5 transition-all cursor-pointer"
                     onClick={(e) => { e.stopPropagation(); fileInputRef.current?.click(); }}
@@ -629,8 +545,6 @@ export default function AIArtApp() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [resultImage, setResultImage] = useState(null);
   const [batchResults, setBatchResults] = useState([]);
-  const [batchReference, setBatchReference] = useState(null); 
-  const [batchInstructions, setBatchInstructions] = useState(null); 
   const [error, setError] = useState(null);
   
   const [selectedRatioId, setSelectedRatioId] = useState('square');
@@ -638,8 +552,6 @@ export default function AIArtApp() {
   const [histories, setHistories] = useState({ 1: [], 2: [], 3: [], 4: [], 5: [] });
   const [lightboxData, setLightboxData] = useState({ isOpen: false, images: [], index: 0 });
   const [showHelp, setShowHelp] = useState(false);
-
-  const originalSize = inputFiles.length > 0 && inputFiles[0].dims ? inputFiles[0].dims : null;
 
   useEffect(() => {
     const handlePaste = async (e) => {
@@ -703,6 +615,48 @@ export default function AIArtApp() {
     setIsGenerating(false);
   };
 
+  const downloadImage = (url, resolution = '4k') => {
+    const img = new Image();
+    img.crossOrigin = "anonymous";
+    img.src = url;
+    img.onload = () => {
+        let downloadUrl = url;
+        const MAX_SIZE = resolution === '2k' ? 2048 : 4096;
+        let targetW = img.width;
+        let targetH = img.height;
+        let shouldUpscale = false;
+
+        const scaleW = MAX_SIZE / targetW;
+        const scaleH = MAX_SIZE / targetH;
+        const scale = Math.min(scaleW, scaleH);
+        
+        if (Math.abs(scale - 1) > 0.05) {
+             targetW = Math.round(targetW * scale);
+             targetH = Math.round(targetH * scale);
+             shouldUpscale = true;
+        }
+
+        if (shouldUpscale) {
+             const canvas = document.createElement('canvas');
+             canvas.width = targetW;
+             canvas.height = targetH;
+             const ctx = canvas.getContext('2d');
+             ctx.imageSmoothingEnabled = true;
+             ctx.imageSmoothingQuality = 'high';
+             ctx.drawImage(img, 0, 0, targetW, targetH);
+             applySharpening(ctx, targetW, targetH, 0.5); 
+             downloadUrl = canvas.toDataURL('image/jpeg', 0.9); 
+        }
+        
+        const link = document.createElement('a');
+        link.href = downloadUrl;
+        link.download = `AIGen_${resolution.toUpperCase()}_${Date.now()}.png`;
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+    };
+  };
+
   const handleGenerate = async () => {
     setError(null);
     if (!prompt && activeTab !== 2 && activeTab !== 3 && activeTab !== 4 && activeTab !== 5) {
@@ -717,30 +671,16 @@ export default function AIArtApp() {
     setIsGenerating(true);
     setResultImage(null);
     setBatchResults([]);
-    setBatchReference(null); 
-    setBatchInstructions(null); 
 
     try {
       if (activeTab === 5) {
           const initBatch = inputFiles.map((_, i) => ({ status: 'pending', url: null, id: i }));
           setBatchResults(initBatch);
           const finalUrls = new Array(inputFiles.length).fill(null);
-          let currentInstructions = null;
-          let currentRefData = null;
 
           for (let i = 0; i < inputFiles.length; i++) {
               try {
-                  let url;
-                  if (i === 0) {
-                      url = await generateMultimodalImage(prompt, [inputFiles[0]], 'edit', null, null);
-                      currentRefData = { org1: inputFiles[0], res1: url };
-                      setBatchReference(currentRefData);
-                      const deltaDesc = await analyzeImageDelta(inputFiles[0].file, url);
-                      currentInstructions = deltaDesc || prompt; 
-                      setBatchInstructions(currentInstructions);
-                  } else {
-                      url = await generateMultimodalImage(prompt, [inputFiles[i]], 'batch_execute', null, { instructions: currentInstructions, referenceResult: currentRefData.res1 });
-                  }
+                  const url = await generateMultimodalImage(prompt, [inputFiles[i]], 'batch', null);
                   finalUrls[i] = url;
                   setBatchResults(prev => { const newState = [...prev]; newState[i] = { status: 'done', url: url, id: i }; return newState; });
               } catch (batchErr) {
@@ -754,12 +694,7 @@ export default function AIArtApp() {
       } else {
         let url;
         if (activeTab === 1) {
-            // --- LOGIC MỚI TAB 1: TẠO CANVAS TRẮNG & VẼ ---
-            // Gọi hàm tạo canvas trắng đúng tỉ lệ
-            const blankCanvasData = await createBlankCanvas(selectedRatioId);
-            // Gửi canvas này cho AI với task 'creation'
-            // Chú ý: Đã truyền selectedRatioId để làm rõ intent nếu cần
-            url = await generateMultimodalImage(prompt, [blankCanvasData], 'creation', selectedRatioId);
+            url = await generateGoogleImage(prompt);
         } else {
             let taskType = 'edit';
             if (activeTab === 3) taskType = 'sketch';
@@ -781,18 +716,7 @@ export default function AIArtApp() {
   const handleRegenerateSingle = async (index) => {
       setBatchResults(prev => { const newState = [...prev]; newState[index] = { ...newState[index], status: 'pending' }; return newState; });
       try {
-          let url;
-          if (index === 0) {
-              url = await generateMultimodalImage(prompt, [inputFiles[0]], 'edit', null, null);
-              const newRef = { org1: inputFiles[0], res1: url };
-              setBatchReference(newRef);
-              const deltaDesc = await analyzeImageDelta(inputFiles[0].file, url);
-              const newInstr = deltaDesc || prompt;
-              setBatchInstructions(newInstr);
-          } else {
-              if (!batchInstructions || !batchReference) throw new Error("Chưa có dữ liệu mẫu");
-              url = await generateMultimodalImage(prompt, [inputFiles[index]], 'batch_execute', null, { instructions: batchInstructions, referenceResult: batchReference.res1 });
-          }
+          const url = await generateMultimodalImage(prompt, [inputFiles[index]], 'batch', null);
           setBatchResults(prev => { const newState = [...prev]; newState[index] = { status: 'done', url: url, id: index }; return newState; });
           setHistories(prev => {
               const currentTabHistory = [...prev[5]]; 
@@ -812,49 +736,6 @@ export default function AIArtApp() {
       }
   };
 
-  const downloadImage = (url, resolution = '4k') => {
-    const img = new Image();
-    img.crossOrigin = "anonymous";
-    img.src = url;
-    img.onload = () => {
-        let downloadUrl = url;
-        const MAX_UPSCALE_SIZE = 4096; 
-        let targetW = img.width;
-        let targetH = img.height;
-        let shouldUpscale = false;
-
-        if (targetW < MAX_UPSCALE_SIZE && targetH < MAX_UPSCALE_SIZE) {
-             const scaleW = MAX_UPSCALE_SIZE / targetW;
-             const scaleH = MAX_UPSCALE_SIZE / targetH;
-             const scale = Math.min(scaleW, scaleH);
-             if (scale > 1) {
-                 targetW = Math.round(targetW * scale);
-                 targetH = Math.round(targetH * scale);
-                 shouldUpscale = true;
-             }
-        }
-
-        if (shouldUpscale) {
-             const canvas = document.createElement('canvas');
-             canvas.width = targetW;
-             canvas.height = targetH;
-             const ctx = canvas.getContext('2d');
-             ctx.imageSmoothingEnabled = true;
-             ctx.imageSmoothingQuality = 'high';
-             ctx.drawImage(img, 0, 0, targetW, targetH);
-             applySharpening(ctx, targetW, targetH, 0.5); 
-             downloadUrl = canvas.toDataURL('image/png'); 
-        }
-        
-        const link = document.createElement('a');
-        link.href = downloadUrl;
-        link.download = `AIGen_${resolution.toUpperCase()}_${Date.now()}.png`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-    };
-  };
-
   const openLightbox = (imagesSource, startIndex = 0) => {
       let images = [];
       if (Array.isArray(imagesSource)) { images = imagesSource; } else { images = [imagesSource]; }
@@ -866,7 +747,7 @@ export default function AIArtApp() {
         return (
           <div className="space-y-3 animate-in fade-in slide-in-from-bottom-2 duration-300 h-full flex flex-col">
              <div className="bg-orange-500/10 border border-orange-500/20 px-3 py-2 rounded-lg text-xs text-orange-200/80 shrink-0">
-               <b>Sửa Hàng Loạt (Hybrid Anchor)</b>: Sử dụng đồng thời Text và Visual Reference để đảm bảo cả Bố cục và Chi tiết.
+               <b>Sửa Hàng Loạt</b>: Áp dụng cùng 1 Prompt chỉnh sửa cho tất cả các ảnh một cách độc lập.
              </div>
              <div className="flex-1 min-h-0">
                <ImageUploader files={inputFiles} setFiles={setInputFiles} multiple={true} label="Tải bộ ảnh (Chọn nhiều)" />
@@ -979,7 +860,7 @@ export default function AIArtApp() {
     { id: 2, label: 'Chỉnh Sửa', icon: Settings2 },
     { id: 3, label: 'Sketch', icon: PenTool },
     { id: 4, label: 'Face ID', icon: UserSquare2 },
-    { id: 5, label: 'Batch Edit (thử nghiệm)', icon: Layers } 
+    { id: 5, label: 'Batch Edit', icon: Layers } 
   ];
 
   return (
@@ -1028,21 +909,20 @@ export default function AIArtApp() {
                    <h2 className="text-xl font-semibold text-white/90">{TABS.find(t => t.id === activeTab)?.label}</h2>
                    <p className="text-xs text-white/40 mt-1">{activeTab === 5 ? 'Sửa 1 ảnh, áp dụng cho tất cả.' : 'AI Creative Suite.'}</p>
                 </div>
-                {/* NÚT TRỢ GIÚP */}
                 <button onClick={() => setShowHelp(true)} className="p-2 text-white/40 hover:text-blue-400 transition-colors" title="Hướng dẫn sử dụng"><HelpCircle size={20} /></button>
             </div>
 
             <div className="shrink-0 space-y-2 mt-4">
               <label className="text-[10px] font-bold text-white/40 uppercase flex justify-between">
-                Prompt {activeTab === 5 && "(Áp dụng cho ảnh đầu tiên)"}
+                Prompt {activeTab === 5 && "(Áp dụng chung)"}
                 <span className="text-white/20">{prompt.length}/500</span>
               </label>
-              <div className="relative group">
+              <div className="relative group flex flex-col">
                 <textarea 
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder={activeTab === 2 || activeTab === 5 ? "VD: Thêm hiệu ứng màu film, làm nét ảnh..." : "VD: Một chú mèo máy futuristic..."}
-                  className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-3 text-white text-sm focus:border-blue-500/50 focus:bg-black/30 outline-none resize-none transition-all placeholder:text-white/20"
+                  className="w-full h-32 bg-black/20 border border-white/10 rounded-xl p-3 text-white text-sm focus:border-blue-500/50 focus:bg-black/30 outline-none resize-none transition-all placeholder:text-white/20 custom-scrollbar overflow-y-auto"
                 />
                 <div className="absolute bottom-2 right-2">
                    <Wand2 size={14} className="text-white/20" />
