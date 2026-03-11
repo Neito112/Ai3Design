@@ -74,19 +74,27 @@ const HELP_CONTENT = {
     }
 };
 
+// --- CHUẨN HÓA LOGIC RETRY ---
 const fetchWithRetry = async (url, options) => {
-  const delays = [1000, 2000, 4000];
+  // Retry 5 lần với thời gian chờ tăng dần theo cấp số nhân để vượt qua lỗi Rate Limit / Refresh Token
+  const delays = [1000, 2000, 4000, 8000, 16000];
   for (let i = 0; i < delays.length; i++) {
     try {
       const response = await fetch(url, options);
-      if (response.ok) return response;
-      if (response.status === 401 || response.status === 403 || response.status === 400) {
-        return response; 
+      if (response.ok) {
+        return response;
       }
-      if (i === delays.length - 1) return response;
+      // Nếu là lần thử cuối cùng thì trả về response lỗi để xử lý
+      if (i === delays.length - 1) {
+        return response;
+      }
     } catch (error) {
-      if (i === delays.length - 1) throw error;
+      // Bắt lỗi Network, nếu là lần thử cuối cùng thì ném lỗi ra
+      if (i === delays.length - 1) {
+        throw error;
+      }
     }
+    // Chờ trước khi thử lại
     await new Promise(res => setTimeout(res, delays[i]));
   }
 };
@@ -211,29 +219,30 @@ const upscaleResultImage = (base64Data) => {
     });
 };
 
-const getErrorMessage = (status) => {
-  if (status === 401) {
-    if (!apiKey || apiKey.trim() === "") {
-        return "Lỗi 401 (Hệ thống chưa nạp được API Key). Vui lòng F5 lại trang web này vài lần để máy chủ kích hoạt Token cho bạn.";
-    }
-    return "Lỗi 401: API Key bị từ chối.";
-  }
-  if (status === 403) return "Lỗi 403: Môi trường chưa cấp quyền dùng model này.";
-  if (status === 429) return "Lỗi 429: Hệ thống máy chủ đang quá tải. Bạn hãy chờ 30 giây rồi thử lại nhé.";
-  return `Lỗi hệ thống (Mã: ${status}). Vui lòng thử lại sau.`;
-}
+// --- GOOGLE API FUNCTIONS ---
 
-const generateGoogleImage = async (prompt) => {
+const generateGoogleImage = async (prompt, ratioId) => {
+    const aspectRatio = RATIO_CONFIG[ratioId]?.apiValue || '1:1';
     const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-4.0-generate-001:predict?key=${apiKey}`;
+    
     const payload = {
         instances: { prompt: prompt },
-        parameters: { sampleCount: 1 }
+        parameters: { sampleCount: 1, aspectRatio: aspectRatio }
     };
     
-    const response = await fetchWithRetry(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+    const response = await fetchWithRetry(url, { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(payload) 
+    });
     
     if (!response || !response.ok) {
-        throw new Error(getErrorMessage(response ? response.status : 0));
+        let errorMsg = `Lỗi hệ thống (Mã: ${response ? response.status : 'Network'}). Vui lòng thử lại sau.`;
+        if (response && response.status === 401) errorMsg = "Lỗi 401: Ứng dụng chưa được cấp Token hợp lệ từ hệ thống, dù đã thử lại. Bạn vui lòng F5 tải lại trang web.";
+        if (response && response.status === 429) errorMsg = "Lỗi 429: Hệ thống quá tải do nhiều người sử dụng. Hãy đợi 1 phút rồi thử lại.";
+        
+        const errorData = await (response ? response.json().catch(()=>({})) : {});
+        throw new Error(errorData.error?.message || errorMsg);
     }
     
     const data = await response.json();
@@ -245,7 +254,8 @@ const generateGoogleImage = async (prompt) => {
 const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) => {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-image-preview:generateContent?key=${apiKey}`;
   
-  const processedFiles = files.slice(0, 3);
+  // Đảm bảo luôn lấy tối đa 3 ảnh và files là array
+  const processedFiles = Array.isArray(files) ? files.slice(0, 3) : [];
   const imageParts = await Promise.all(processedFiles.map(async (f) => {
       const compressed = await compressImage(f.file, ratioId, taskType);
       return { inlineData: { mimeType: compressed.mimeType, data: compressed.data } };
@@ -280,10 +290,21 @@ const generateMultimodalImage = async (prompt, files, taskType, ratioId = null) 
   };
   
   try {
-      const response = await fetchWithRetry(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const response = await fetchWithRetry(url, { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(payload) 
+      });
+      
       if (!response || !response.ok) { 
-          throw new Error(getErrorMessage(response ? response.status : 0));
+          let errorMsg = `Lỗi từ Gemini API (Mã: ${response ? response.status : 'Network'})`;
+          if (response && response.status === 401) errorMsg = "Lỗi 401: Hệ thống chưa cấp quyền cho phiên bản này. Hãy thử F5 tải lại trang.";
+          if (response && response.status === 429) errorMsg = "Lỗi 429: Hệ thống quá tải. Hãy đợi một chút rồi ấn lại.";
+          
+          const errorData = await (response ? response.json().catch(() => ({})) : {}); 
+          throw new Error(errorData.error?.message || errorMsg); 
       }
+      
       const data = await response.json();
       const returnImagePart = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
       if (!returnImagePart) { 
@@ -694,7 +715,7 @@ export default function AIArtApp() {
       } else {
         let url;
         if (activeTab === 1) {
-            url = await generateGoogleImage(prompt);
+            url = await generateGoogleImage(prompt, selectedRatioId);
         } else {
             let taskType = 'edit';
             if (activeTab === 3) taskType = 'sketch';
